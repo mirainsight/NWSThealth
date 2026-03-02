@@ -377,22 +377,32 @@ def generate_daily_colors():
     today_myt = get_today_myt_date()
     return generate_colors_for_date(today_myt)
 
+def get_status_full_text(status_type):
+    """Convert status type to full descriptive text."""
+    status_map = {
+        "Regular": "Regular: Comes 3 or more times a month",
+        "Irregular": "Irregular: Comes 2 or less times a month",
+        "New": "New",
+        "Follow Up": "Follow Up: Haven't seen in them in 2 months",
+        "Red": "Red: Will no longer follow up. Don't wanna come church anymore",
+        "Graduated": "Graduated: Will no longer follow up. Moved to different ministry"
+    }
+    return status_map.get(status_type, status_type)
+
 def get_member_status_for_month(df):
     """
-    Extract member status data for historical tracking.
-    Returns a list of records with: Date, Person, Status, Month
+    Extract member status data for historical tracking (pivot format).
+    Returns a dict with Person+Cell as key and status as value.
     """
     myt = timezone(timedelta(hours=8))
-    current_date = datetime.now(myt).strftime("%Y-%m-%d")
     current_month = datetime.now(myt).strftime("%Y-%m")
 
-    records = []
+    status_data = {}
 
-    # Find status column
+    # Find columns
     status_columns = [col for col in df.columns if 'status' in col.lower()]
     status_col = status_columns[0] if status_columns else None
 
-    # Find name column
     name_col = None
     for col in df.columns:
         col_lower = col.lower()
@@ -400,18 +410,25 @@ def get_member_status_for_month(df):
             name_col = col
             break
 
-    if not name_col or not status_col:
-        return records
+    cell_col = None
+    for col in df.columns:
+        if col.lower().strip() in ['cell', 'group']:
+            cell_col = col
+            break
 
-    # Group by person and extract status types
+    if not name_col or not status_col:
+        return {}
+
+    # Extract status for each person
     for _, row in df.iterrows():
         person_name = str(row[name_col]).strip() if pd.notna(row[name_col]) else ""
         status_val = str(row[status_col]).strip() if pd.notna(row[status_col]) else ""
+        cell_name = str(row[cell_col]).strip() if cell_col and pd.notna(row[cell_col]) else ""
 
         if not person_name:
             continue
 
-        # Extract status type from the descriptive status
+        # Extract status type
         status_type = ""
         if status_val.startswith("Regular:"):
             status_type = "Regular"
@@ -427,21 +444,23 @@ def get_member_status_for_month(df):
             status_type = "Graduated"
 
         if status_type:
-            records.append({
-                "Date": current_date,
-                "Month": current_month,
-                "Person": person_name,
-                "Status": status_type
-            })
+            key = f"{person_name}|{cell_name}"
+            status_data[key] = {
+                "name": person_name,
+                "cell": cell_name,
+                "status": status_type,
+                "status_full": get_status_full_text(status_type),
+                "month": current_month
+            }
 
-    return records
+    return status_data
 
-def append_to_status_historical(spreadsheet_id, records):
+def append_to_status_historical(spreadsheet_id, status_data):
     """
-    Append member status records to the 'Status Historical' tab.
-    Creates the tab if it doesn't exist. Headers always in row 1, data from row 2 onwards.
+    Update/append member status records to the 'Status Historical' tab (pivot format).
+    Format: Column A = Name, Column B = Cell, Column C onwards = Months with status values.
     """
-    if not records:
+    if not status_data:
         return True
 
     client = get_google_sheet_client()
@@ -451,32 +470,81 @@ def append_to_status_historical(spreadsheet_id, records):
     try:
         spreadsheet = client.open_by_key(spreadsheet_id)
 
-        # Try to get existing historical tab, create if doesn't exist
+        # Get or create worksheet
         try:
             worksheet = spreadsheet.worksheet("Status Historical")
-            # Check if headers exist in row 1
-            existing_data = worksheet.get_all_values()
-            if not existing_data or len(existing_data) == 0:
-                # Tab is empty, add headers to row 1
-                worksheet.insert_row(["Date", "Month", "Person", "Status"], 1)
         except:
-            # Tab doesn't exist, create it
-            worksheet = spreadsheet.add_worksheet(title="Status Historical", rows=1000, cols=4)
-            # Add headers to row 1
-            worksheet.insert_row(["Date", "Month", "Person", "Status"], 1)
+            worksheet = spreadsheet.add_worksheet(title="Status Historical", rows=1000, cols=20)
 
-        # Append records starting from row 2
-        for record in records:
-            worksheet.append_row([
-                record.get("Date", ""),
-                record.get("Month", ""),
-                record.get("Person", ""),
-                record.get("Status", "")
-            ])
+        # Get all existing data
+        existing_data = worksheet.get_all_values()
+        
+        # Get current month from first record
+        current_month = None
+        for key, data in status_data.items():
+            current_month = data["month"]
+            break
+
+        if not current_month:
+            return False
+
+        # Initialize headers if needed
+        if not existing_data:
+            worksheet.update('A1', [["Name", "Cell", current_month]])
+            # Add data
+            row_num = 2
+            for key, data in sorted(status_data.items()):
+                worksheet.update(f'A{row_num}', [[data["name"], data["cell"], data["status_full"]]])
+                row_num += 1
+        else:
+            # Headers exist
+            headers = existing_data[0] if existing_data else []
+            
+            # Check if current month column exists
+            month_col_idx = None
+            for idx, header in enumerate(headers):
+                if header == current_month:
+                    month_col_idx = idx
+                    break
+            
+            # Add month column if it doesn't exist
+            if month_col_idx is None:
+                month_col_idx = len(headers)
+                worksheet.update(f'{get_column_letter(month_col_idx + 1)}1', [[current_month]])
+            
+            # Update existing rows or add new ones
+            existing_people = {}
+            for row_idx, row in enumerate(existing_data[1:], start=2):
+                if len(row) >= 2:
+                    key = f"{row[0]}|{row[1]}"
+                    existing_people[key] = row_idx
+
+            # Update/add person rows
+            for key, data in sorted(status_data.items()):
+                if key in existing_people:
+                    # Update existing person
+                    row_num = existing_people[key]
+                    col_letter = get_column_letter(month_col_idx + 1)
+                    worksheet.update(f'{col_letter}{row_num}', [[data["status_full"]]])
+                else:
+                    # Add new person
+                    row_num = len(existing_data) + 1
+                    row_data = [data["name"], data["cell"]] + [""] * (month_col_idx - 1)
+                    row_data.append(data["status_full"])
+                    worksheet.update(f'A{row_num}', [row_data])
 
         return True
     except Exception as e:
         return False
+
+def get_column_letter(col_num):
+    """Convert column number to letter (1=A, 2=B, etc.)."""
+    letter = ""
+    while col_num > 0:
+        col_num -= 1
+        letter = chr(65 + col_num % 26) + letter
+        col_num //= 26
+    return letter
 
 # Page configuration
 st.set_page_config(
