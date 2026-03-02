@@ -529,6 +529,28 @@ st.markdown(f"""
         margin-top: 0.5rem;
     }}
 
+    /* Mobile responsive - smaller cards on small screens */
+    @media (max-width: 768px) {{
+        .kpi-card {{
+            padding: 1rem 1.25rem;
+            margin-bottom: 1rem;
+            min-height: 140px;
+        }}
+        .kpi-label {{
+            font-size: 0.75rem;
+            letter-spacing: 1px;
+            margin-bottom: 0.25rem;
+        }}
+        .kpi-number {{
+            font-size: 2.5rem;
+            margin: 0.25rem 0;
+        }}
+        .kpi-subtitle {{
+            font-size: 0.7rem;
+            margin-top: 0.25rem;
+        }}
+    }}
+
     /* Member tile styling with CSS tooltip */
     .member-tile {{
         display: inline-block;
