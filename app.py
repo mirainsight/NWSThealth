@@ -82,6 +82,53 @@ def load_sheet_data():
         return pd.DataFrame()
 
 @st.cache_data(ttl=300)
+def load_ministries_sheet_data():
+    """Load data from Google Sheet 'Ministries Combined' tab or from Redis cache."""
+    # Try Redis first
+    redis = get_redis_client()
+    if redis:
+        try:
+            cached_data = redis.get("nwst_ministries_combined_data")
+            if cached_data:
+                data = json.loads(cached_data)
+                df = pd.DataFrame(data["rows"], columns=data["columns"])
+                return df
+        except Exception:
+            pass
+
+    # Fall back to Google Sheets
+    client = get_google_sheet_client()
+    if not client:
+        return pd.DataFrame()
+
+    try:
+        spreadsheet = client.open_by_key("1uexbQinWl1r6NgmSrmOXPtWs-q4OJV3o1OwLywMWzzY")
+        worksheet = spreadsheet.worksheet("Ministries Combined")
+        data = worksheet.get_all_values()
+
+        if not data:
+            return pd.DataFrame()
+
+        # First row is headers
+        df = pd.DataFrame(data[1:], columns=data[0])
+
+        # Cache in Redis
+        redis = get_redis_client()
+        if redis:
+            try:
+                cache_data = {
+                    "columns": df.columns.tolist(),
+                    "rows": df.values.tolist()
+                }
+                redis.set("nwst_ministries_combined_data", json.dumps(cache_data), ex=300)
+            except Exception:
+                pass
+
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=300)
 def get_newcomers_data():
     """Load newcomers data from Google Sheet."""
     df = load_sheet_data()
@@ -90,6 +137,16 @@ def get_newcomers_data():
 
     newcomers_df = df.copy()
     return newcomers_df
+
+@st.cache_data(ttl=300)
+def get_ministries_data():
+    """Load ministries data from Google Sheet."""
+    df = load_ministries_sheet_data()
+    if df.empty:
+        return pd.DataFrame()
+
+    ministries_df = df.copy()
+    return ministries_df
 
 @st.cache_data(ttl=300)
 def get_attendance_data():
@@ -701,6 +758,25 @@ if current_page == "cg":
                             }
                             redis.set("nwst_cg_combined_data", json.dumps(cache_data), ex=300)
 
+# Sync Ministries Combined data
+                    try:
+                        ministries_worksheet = spreadsheet.worksheet("Ministries Combined")
+                        ministries_data = ministries_worksheet.get_all_values()
+
+                        if ministries_data:
+                            ministries_df = pd.DataFrame(ministries_data[1:], columns=ministries_data[0])
+
+                            # Cache in Redis
+                            redis = get_redis_client()
+                            if redis:
+                                cache_data = {
+                                    "columns": ministries_df.columns.tolist(),
+                                    "rows": ministries_df.values.tolist()
+                                }
+                                redis.set("nwst_ministries_combined_data", json.dumps(cache_data), ex=300)
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not sync Ministries data: {e}")
+
 # Sync Attendance data
                         try:
                             att_worksheet = spreadsheet.worksheet("Attendance")
@@ -1303,6 +1379,38 @@ if current_page == "cg":
                 leadership_data = get_leadership_by_role(display_df)
 
                 if leadership_data:
+                    # Calculate total leaders and percentage
+                    total_leaders = sum(len(members) for members in leadership_data.values())
+
+                    if cell_filter != "All" and cell_columns:
+                        total_in_cell = len(display_df[display_df[cell_columns[0]] == cell_filter])
+                    else:
+                        total_in_cell = len(display_df)
+
+                    leader_pct = (total_leaders / total_in_cell * 100) if total_in_cell > 0 else 0
+
+                    # Display two cards in columns
+                    leader_kpi_col1, leader_kpi_col2 = st.columns(2)
+
+                    with leader_kpi_col1:
+                        st.markdown(f"""
+                        <div class="kpi-card">
+                            <div class="kpi-label">Total Leaders</div>
+                            <div class="kpi-number">{total_leaders}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    with leader_kpi_col2:
+                        st.markdown(f"""
+                        <div class="kpi-card">
+                            <div class="kpi-label">Leaders %</div>
+                            <div class="kpi-number" style="color: {daily_colors['primary']};">{leader_pct:.0f}%</div>
+                            <div class="kpi-subtitle">{total_leaders} of {total_in_cell}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    st.markdown("")
+
                     # Display leadership organized by role
                     for role_name, members in leadership_data.items():
                         st.markdown(f"<h3 style='color: {daily_colors['primary']}; font-size: 1.1rem;'>{role_name}</h3>", unsafe_allow_html=True)
@@ -1385,7 +1493,150 @@ if current_page == "cg":
 
 # ========== MINISTRY HEALTH PAGE ==========
 elif current_page == "ministry":
-    st.markdown("### Ministry Health")
-    st.info("Ministry Health page - coming soon!")
     st.markdown("")
-    st.write("This page will contain ministry-specific health metrics and tracking information.")
+    try:
+        ministries_df = get_ministries_data()
+
+        if not ministries_df.empty:
+            # Get unique ministry names for filtering
+            ministry_columns = [col for col in ministries_df.columns if 'ministry' in col.lower() or 'department' in col.lower()]
+
+            # Extract base ministry names (part before colon, or full value if no colon)
+            base_ministries = set()
+            if ministry_columns:
+                for entry in ministries_df[ministry_columns[0]]:
+                    if pd.notna(entry):
+                        entry_str = str(entry).strip()
+                        # Extract base ministry name (before the colon)
+                        base_ministry = entry_str.split(":", 1)[0].strip()
+                        if base_ministry:
+                            base_ministries.add(base_ministry)
+
+            # Build ministry filter options
+            ministry_options = ["All"] + sorted(list(base_ministries))
+
+            # Filter section with dynamic options
+            st.markdown("#### Global Filters")
+            filter_col1, filter_col2, filter_col3 = st.columns(3)
+
+            with filter_col1:
+                ministry_filter = st.selectbox(
+                    "Ministry",
+                    options=ministry_options,
+                    key="global_ministry_filter"
+                )
+
+            # If Worship is selected, show department filter
+            department_filter = "All"
+            if ministry_filter == "Worship":
+                with filter_col2:
+                    # Extract departments from Worship entries (format: "Worship: Department Name")
+                    worship_entries = ministries_df[ministries_df[ministry_columns[0]].str.contains("Worship", na=False, case=False)][ministry_columns[0]]
+                    departments = set()
+                    for entry in worship_entries:
+                        if ":" in str(entry):
+                            dept = str(entry).split(":", 1)[1].strip()
+                            departments.add(dept)
+
+                    department_options = ["All"] + sorted(list(departments))
+                    department_filter = st.selectbox(
+                        "Department",
+                        options=department_options,
+                        key="department_filter"
+                    )
+            else:
+                filter_col2.write("")
+
+            with filter_col3:
+                status_filter_m = st.selectbox(
+                    "Status",
+                    options=["All", "Active", "Inactive"],
+                    key="status_filter_m"
+                )
+
+            st.markdown("---")
+
+            # Apply filters
+            display_ministry_df = ministries_df.copy()
+
+            # Apply ministry filter
+            if ministry_filter != "All" and ministry_columns:
+                if ministry_filter == "Worship":
+                    # For Worship, include all entries that start with "Worship"
+                    display_ministry_df = display_ministry_df[display_ministry_df[ministry_columns[0]].str.contains("^Worship", na=False, case=False, regex=True)]
+                    # Apply department filter if specified
+                    if department_filter != "All":
+                        display_ministry_df = display_ministry_df[display_ministry_df[ministry_columns[0]].str.contains(f"Worship: {department_filter}", na=False, case=False)]
+                else:
+                    # For other ministries, match entries that start with the ministry name but have no department
+                    display_ministry_df = display_ministry_df[display_ministry_df[ministry_columns[0]].str.match(f"^{ministry_filter}$", na=False, case=False)]
+
+            # Apply status filter if available
+            if status_filter_m != "All":
+                status_columns_m = [col for col in display_ministry_df.columns if 'status' in col.lower()]
+                if status_columns_m:
+                    display_ministry_df = display_ministry_df[display_ministry_df[status_columns_m[0]] == status_filter_m]
+
+            # LEADERSHIP SECTION
+            st.markdown("")
+            st.markdown(f"<h2 style='color: {daily_colors['primary']}; font-weight: 900;'>👔 LEADERSHIP</h2>", unsafe_allow_html=True)
+            st.markdown(f"<div style='height: 3px; background: {daily_colors['primary']}; margin-bottom: 1.5rem;'></div>", unsafe_allow_html=True)
+
+            if not display_ministry_df.empty:
+                # Get leadership members from data
+                leadership_data_m = get_leadership_by_role(display_ministry_df)
+
+                if leadership_data_m:
+                    # Calculate total leaders and percentage
+                    total_leaders_m = sum(len(members) for members in leadership_data_m.values())
+
+                    # Use the already filtered dataframe
+                    total_in_ministry = len(display_ministry_df)
+
+                    leader_pct_m = (total_leaders_m / total_in_ministry * 100) if total_in_ministry > 0 else 0
+
+                    # Display two cards in columns
+                    leader_kpi_col1_m, leader_kpi_col2_m = st.columns(2)
+
+                    with leader_kpi_col1_m:
+                        st.markdown(f"""
+                        <div class="kpi-card">
+                            <div class="kpi-label">Total Leaders</div>
+                            <div class="kpi-number">{total_leaders_m}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    with leader_kpi_col2_m:
+                        st.markdown(f"""
+                        <div class="kpi-card">
+                            <div class="kpi-label">Leaders %</div>
+                            <div class="kpi-number" style="color: {daily_colors['primary']};">{leader_pct_m:.0f}%</div>
+                            <div class="kpi-subtitle">{total_leaders_m} of {total_in_ministry}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    st.markdown("")
+
+                    # Display leadership organized by role
+                    for role_name, members in leadership_data_m.items():
+                        st.markdown(f"<h3 style='color: {daily_colors['primary']}; font-size: 1.1rem;'>{role_name}</h3>", unsafe_allow_html=True)
+
+                        for leader in members:
+                            since_text = f"Since: {leader['since']}" if leader['since'] else "Since: Not available"
+                            st.markdown(f"""
+                            <div style='padding: 1rem; background: #1a1a1a; border-left: 3px solid {daily_colors['primary']}; margin-bottom: 0.75rem;'>
+                                <p style='font-weight: 600; margin: 0;'>{leader['name']}</p>
+                                <p style='font-size: 0.85rem; color: #999; margin: 0.25rem 0 0 0;'>{since_text}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                        st.markdown("")
+                else:
+                    st.info("No leadership roles assigned yet.")
+            else:
+                st.info("No ministry data available.")
+        else:
+            st.warning("No ministries data found. Click 'Sync from Google Sheets' on the CG Health tab to load data.")
+
+    except Exception as e:
+        st.error(f"Error loading ministry data: {e}")
