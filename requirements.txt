@@ -3,3 +3,4 @@ gspread==6.2.1
 google-auth-oauthlib==1.2.4
 google-auth-httplib2==0.2.0
 pandas==2.1.4
+upstash-redis==1.6.0
