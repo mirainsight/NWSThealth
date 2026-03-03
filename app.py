@@ -1568,7 +1568,28 @@ if current_page == "cg":
                             return styles
 
                         if selected_status_cols:
-                            styled_result = styled_df[selected_status_cols].style.apply(highlight_status, axis=1)
+                            # Create filtered dataframe for styling
+                            filtered_styled_df = styled_df[selected_status_cols].copy()
+
+                            # Apply styling to filtered dataframe
+                            def highlight_status_filtered(row):
+                                """Apply color based on status value."""
+                                styles = []
+                                for i, val in enumerate(row):
+                                    col_name = filtered_styled_df.columns[i]
+                                    # Apply styling to all date columns (those with month/year format)
+                                    is_name_col = col_name.lower() in ['name', 'cell name']
+                                    if not is_name_col:
+                                        color_style = get_status_color(str(val).strip())
+                                        if color_style:
+                                            styles.append(f"{color_style} text-align: center; font-weight: 600;")
+                                        else:
+                                            styles.append("text-align: center; font-weight: 600;")
+                                    else:
+                                        styles.append("")
+                                return styles
+
+                            styled_result = filtered_styled_df.style.apply(highlight_status_filtered, axis=1)
                             st.write(styled_result)
                         else:
                             st.warning("Please select at least one column to display.")
