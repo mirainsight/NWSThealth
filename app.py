@@ -303,9 +303,9 @@ def get_attendance_data():
 
 def categorize_member_status(attendance_count, total_possible):
     """Categorize member as Regular, Irregular, or Follow Up based on attendance."""
-    if attendance_count > (total_possible * 0.50):  # Above 50% attendance = Regular
+    if attendance_count >= (total_possible * 0.75):  # 75% or above attendance = Regular
         return "Regular"
-    elif attendance_count > 0:  # Between 0% and 50% = Irregular
+    elif attendance_count > 0:  # Between 0% and below 75% = Irregular
         return "Irregular"
     else:  # 0% attendance = Follow Up
         return "Follow Up"
@@ -1251,7 +1251,7 @@ if current_page == "cg":
                     </div>
                     """, unsafe_allow_html=True)
                     if st.session_state.expand_regular:
-                        st.markdown(f"<p style='color: #2ecc71; font-weight: 600;'>Regular Members (Above 50% attendance)</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='color: #2ecc71; font-weight: 600;'>Regular Members (75%+ attendance - past 3 months)</p>", unsafe_allow_html=True)
                         if status_col:
                             regular_data = display_df[display_df['status_type'] == "Regular"].copy()
                         else:
@@ -1296,7 +1296,7 @@ if current_page == "cg":
                     </div>
                     """, unsafe_allow_html=True)
                     if st.session_state.expand_irregular:
-                        st.markdown(f"<p style='color: #e67e22; font-weight: 600;'>Irregular Members (50% and below attendance)</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='color: #e67e22; font-weight: 600;'>Irregular Members (Below 75% attendance - past 3 months)</p>", unsafe_allow_html=True)
                         if status_col:
                             irregular_data = display_df[display_df['status_type'] == "Irregular"].copy()
                         else:
@@ -1345,7 +1345,7 @@ if current_page == "cg":
                     </div>
                     """, unsafe_allow_html=True)
                     if st.session_state.expand_follow_up:
-                        st.markdown(f"<p style='color: #ffd700; font-weight: 600;'>Follow Up (0% attendance - past 2 months)</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='color: #ffd700; font-weight: 600;'>Follow Up (0% attendance - past 3 months)</p>", unsafe_allow_html=True)
                         if status_col:
                             follow_up_data = display_df[display_df['status_type'] == "Follow Up"].copy()
                         else:
