@@ -129,6 +129,53 @@ def load_ministries_sheet_data():
         return pd.DataFrame()
 
 @st.cache_data(ttl=300)
+def load_status_historical_data():
+    """Load data from Google Sheet 'Status Historical' tab or from Redis cache."""
+    # Try Redis first
+    redis = get_redis_client()
+    if redis:
+        try:
+            cached_data = redis.get("nwst_status_historical_data")
+            if cached_data:
+                data = json.loads(cached_data)
+                df = pd.DataFrame(data["rows"], columns=data["columns"])
+                return df
+        except Exception:
+            pass
+
+    # Fall back to Google Sheets
+    client = get_google_sheet_client()
+    if not client:
+        return pd.DataFrame()
+
+    try:
+        spreadsheet = client.open_by_key("1uexbQinWl1r6NgmSrmOXPtWs-q4OJV3o1OwLywMWzzY")
+        worksheet = spreadsheet.worksheet("Status Historical")
+        data = worksheet.get_all_values()
+
+        if not data:
+            return pd.DataFrame()
+
+        # First row is headers
+        df = pd.DataFrame(data[1:], columns=data[0])
+
+        # Cache in Redis
+        redis = get_redis_client()
+        if redis:
+            try:
+                cache_data = {
+                    "columns": df.columns.tolist(),
+                    "rows": df.values.tolist()
+                }
+                redis.set("nwst_status_historical_data", json.dumps(cache_data), ex=300)
+            except Exception:
+                pass
+
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=300)
 def get_newcomers_data():
     """Load newcomers data from Google Sheet."""
     df = load_sheet_data()
@@ -263,6 +310,30 @@ def categorize_member_status(attendance_count, total_possible):
     else:  # 0% attendance = Follow Up
         return "Follow Up"
 
+def extract_status_type_and_color(status_val):
+    """Extract status type before colon and return display text with color."""
+    if isinstance(status_val, str):
+        if ':' in status_val:
+            status_type = status_val.split(':')[0].strip()
+        else:
+            status_type = status_val.strip()
+    else:
+        status_type = str(status_val).strip()
+
+    return status_type
+
+def get_status_color(status_type):
+    """Return text color based on status type (transparent background)."""
+    colors = {
+        "New": "color: #3498db;",  # Blue
+        "Regular": "color: #2ecc71;",  # Green
+        "Irregular": "color: #e67e22;",  # Orange
+        "Follow Up": "color: #ffd700;",  # Yellow
+        "Red": "color: #e74c3c;",  # Red
+        "Graduated": "color: #9b59b6;",  # Purple
+    }
+    return colors.get(status_type, "")
+
 def get_attendance_text(name, cell, attendance_stats):
     """Get attendance text for a member from attendance_stats dict using Name + Cell."""
     if not attendance_stats:
@@ -299,6 +370,12 @@ def get_member_category_color(category):
     }
     return colors.get(category, "#95a5a6")
 
+def strip_role_number(role_name):
+    """Strip the number prefix from role name (e.g., '4. Potential CG Core' → 'Potential CG Core')."""
+    if isinstance(role_name, str) and '. ' in role_name:
+        return role_name.split('. ', 1)[1].strip()
+    return role_name
+
 def get_leadership_by_role(df):
     """
     Extract leadership members grouped by role hierarchy.
@@ -317,10 +394,11 @@ def get_leadership_by_role(df):
         9: "9. Zone Leader"
     }
 
-    # Find the Role column (case-insensitive)
+    # Find the Role column (case-insensitive, support both "Role" and "Roles")
     role_col = None
     for col in df.columns:
-        if col.lower().strip() == 'role':
+        col_lower = col.lower().strip()
+        if col_lower == 'role' or col_lower == 'roles':
             role_col = col
             break
 
@@ -353,7 +431,8 @@ def get_leadership_by_role(df):
         # Check if this role matches any in our hierarchy
         matching_role = None
         for order, role_name in role_hierarchy.items():
-            if role_val == role_name:
+            # Normalize both for comparison (strip whitespace and compare)
+            if role_val.strip() == role_name.strip():
                 matching_role = role_name
                 break
 
@@ -589,22 +668,22 @@ st.markdown(f"""
     /* Mobile responsive - smaller cards on small screens */
     @media (max-width: 768px) {{
         .kpi-card {{
-            padding: 1rem 1.25rem;
+            padding: 0.75rem 1rem;
             margin-bottom: 1rem;
-            min-height: 140px;
+            min-height: auto;
         }}
         .kpi-label {{
-            font-size: 0.75rem;
-            letter-spacing: 1px;
-            margin-bottom: 0.25rem;
+            font-size: 0.7rem;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.1rem;
         }}
         .kpi-number {{
-            font-size: 2.5rem;
-            margin: 0.25rem 0;
+            font-size: 2rem;
+            margin: 0;
         }}
         .kpi-subtitle {{
-            font-size: 0.7rem;
-            margin-top: 0.25rem;
+            font-size: 0.65rem;
+            margin-top: 0.15rem;
         }}
     }}
 
@@ -741,24 +820,29 @@ if current_page == "cg":
             else:
                 try:
                     spreadsheet = client.open_by_key("1uexbQinWl1r6NgmSrmOXPtWs-q4OJV3o1OwLywMWzzY")
+                    redis = get_redis_client()
+                    sync_success = False
 
                     # Sync CG Combined data
-                    worksheet = spreadsheet.worksheet("CG Combined")
-                    data = worksheet.get_all_values()
+                    try:
+                        worksheet = spreadsheet.worksheet("CG Combined")
+                        data = worksheet.get_all_values()
 
-                    if data:
-                        df = pd.DataFrame(data[1:], columns=data[0])
+                        if data:
+                            df = pd.DataFrame(data[1:], columns=data[0])
 
-                        # Cache in Redis
-                        redis = get_redis_client()
-                        if redis:
-                            cache_data = {
-                                "columns": df.columns.tolist(),
-                                "rows": df.values.tolist()
-                            }
-                            redis.set("nwst_cg_combined_data", json.dumps(cache_data), ex=300)
+                            # Cache in Redis
+                            if redis:
+                                cache_data = {
+                                    "columns": df.columns.tolist(),
+                                    "rows": df.values.tolist()
+                                }
+                                redis.set("nwst_cg_combined_data", json.dumps(cache_data), ex=300)
+                            sync_success = True
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not sync CG Combined data: {e}")
 
-# Sync Ministries Combined data
+                    # Sync Ministries Combined data
                     try:
                         ministries_worksheet = spreadsheet.worksheet("Ministries Combined")
                         ministries_data = ministries_worksheet.get_all_values()
@@ -767,26 +851,27 @@ if current_page == "cg":
                             ministries_df = pd.DataFrame(ministries_data[1:], columns=ministries_data[0])
 
                             # Cache in Redis
-                            redis = get_redis_client()
                             if redis:
                                 cache_data = {
                                     "columns": ministries_df.columns.tolist(),
                                     "rows": ministries_df.values.tolist()
                                 }
                                 redis.set("nwst_ministries_combined_data", json.dumps(cache_data), ex=300)
+                            sync_success = True
                     except Exception as e:
                         st.warning(f"⚠️ Could not sync Ministries data: {e}")
 
-# Sync Attendance data
-                        try:
-                            att_worksheet = spreadsheet.worksheet("Attendance")
-                            att_data = att_worksheet.get_all_values()
+                    # Sync Attendance data
+                    try:
+                        att_worksheet = spreadsheet.worksheet("Attendance")
+                        att_data = att_worksheet.get_all_values()
 
-                            if att_data and len(att_data) >= 2:
-                                att_headers = att_data[0]
-                                att_df = pd.DataFrame(att_data[1:], columns=att_headers)
+                        if att_data and len(att_data) >= 2:
+                            att_headers = att_data[0]
+                            att_df = pd.DataFrame(att_data[1:], columns=att_headers)
 
-                                # Load CG Combined to get Name and Cell mapping
+                            # Load CG Combined to get Name and Cell mapping
+                            try:
                                 cg_worksheet = spreadsheet.worksheet("CG Combined")
                                 cg_data = cg_worksheet.get_all_values()
                                 if cg_data and len(cg_data) >= 2:
@@ -847,27 +932,48 @@ if current_page == "cg":
                                                     'percentage': round(attendance_count / total_services * 100) if total_services > 0 else 0
                                                 }
 
-                                # Cache attendance stats in Redis
-                                if redis:
-                                    redis.set("nwst_attendance_stats", json.dumps(attendance_stats), ex=300)
-                        except Exception as e:
-                            st.warning(f"⚠️ Could not sync Attendance data: {e}")
+                                    # Cache attendance stats in Redis
+                                    if redis:
+                                        redis.set("nwst_attendance_stats", json.dumps(attendance_stats), ex=300)
+                                    sync_success = True
+                            except Exception as e:
+                                st.warning(f"⚠️ Could not load CG Combined for attendance mapping: {e}")
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not sync Attendance data: {e}")
 
+                    # Sync Status Historical data
+                    try:
+                        status_hist_worksheet = spreadsheet.worksheet("Status Historical")
+                        status_hist_data = status_hist_worksheet.get_all_values()
+
+                        if status_hist_data:
+                            status_hist_df = pd.DataFrame(status_hist_data[1:], columns=status_hist_data[0])
+
+                            # Cache in Redis
+                            if redis:
+                                cache_data = {
+                                    "columns": status_hist_df.columns.tolist(),
+                                    "rows": status_hist_df.values.tolist()
+                                }
+                                redis.set("nwst_status_historical_data", json.dumps(cache_data), ex=300)
+                            sync_success = True
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not sync Status Historical data: {e}")
+
+                    if sync_success:
+                        st.success("✅ Data synced successfully! Cached for 5 minutes.")
+
+                        # Store last sync time in Malaysian time
+                        myt = timezone(timedelta(hours=8))
+                        sync_time_myt = datetime.now(myt)
+                        sync_time_str = sync_time_myt.strftime("%Y-%m-%d %H:%M:%S MYT")
                         if redis:
-                            st.success("✅ Data synced successfully! Cached for 5 minutes.")
-
-                            # Store last sync time in Malaysian time
-                            myt = timezone(timedelta(hours=8))
-                            sync_time_myt = datetime.now(myt)
-                            sync_time_str = sync_time_myt.strftime("%Y-%m-%d %H:%M:%S MYT")
                             redis.set("nwst_last_sync_time", sync_time_str)
-                        else:
-                            st.warning("⚠️ Redis not configured, but data loaded from Google Sheets.")
-
-                        # Clear cache to force reload
-                        st.cache_data.clear()
                     else:
-                        st.error("No data found in Google Sheet.")
+                        st.error("❌ No data found in Google Sheets. Please check that the sheets exist and have data.")
+
+                    # Clear cache to force reload
+                    st.cache_data.clear()
                 except Exception as e:
                     st.error(f"Error syncing data: {e}")
 
@@ -1234,12 +1340,12 @@ if current_page == "cg":
                     st.markdown(f"""
                     <div class="kpi-card" style="cursor: pointer;">
                         <div class="kpi-label">Follow Up</div>
-                        <div class="kpi-number" style="color: #f39c12;">{follow_up_pct:.0f}%</div>
+                        <div class="kpi-number" style="color: #ffd700;">{follow_up_pct:.0f}%</div>
                         <div class="kpi-subtitle">{follow_up_count} members</div>
                     </div>
                     """, unsafe_allow_html=True)
                     if st.session_state.expand_follow_up:
-                        st.markdown(f"<p style='color: #f39c12; font-weight: 600;'>Follow Up (0% attendance - past 2 months)</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='color: #ffd700; font-weight: 600;'>Follow Up (0% attendance - past 2 months)</p>", unsafe_allow_html=True)
                         if status_col:
                             follow_up_data = display_df[display_df['status_type'] == "Follow Up"].copy()
                         else:
@@ -1267,7 +1373,7 @@ if current_page == "cg":
                                 # Get attendance text from attendance_stats
                                 tooltip_text = get_attendance_text(name, person_cell, attendance_stats)
 
-                                tiles_html += f"<span class='member-tile' style='border-color: #f39c12;' data-tooltip='{tooltip_text}'>{name}</span> "
+                                tiles_html += f"<span class='member-tile' style='border-color: #ffd700;' data-tooltip='{tooltip_text}'>{name}</span> "
 
                             st.markdown(tiles_html, unsafe_allow_html=True)
                         else:
@@ -1369,6 +1475,110 @@ if current_page == "cg":
             else:
                 st.info("No cell health data available.")
 
+            # STATUS HISTORICAL SECTION
+            try:
+                status_hist_df = load_status_historical_data()
+                if not status_hist_df.empty:
+                    # Apply cell filter to Status Historical
+                    filtered_status_df = status_hist_df.copy()
+
+                    # Find the Cell Name column
+                    cell_col = None
+                    for col in filtered_status_df.columns:
+                        if col.lower().strip() in ['cell name', 'cell', 'group']:
+                            cell_col = col
+                            break
+
+                    # Apply cell filter if available
+                    if cell_filter != "All" and cell_col and cell_col in filtered_status_df.columns:
+                        filtered_status_df = filtered_status_df[filtered_status_df[cell_col] == cell_filter]
+
+                    # Get columns to display (exclude column A which is the combined name-cell)
+                    display_cols = [col for col in filtered_status_df.columns if col != "Name - Cell Name"]
+
+                    if not filtered_status_df.empty:
+                        # Create a display dataframe with extracted status types
+                        status_display_df = filtered_status_df[display_cols].copy()
+
+                        # Convert status values to just the type (word before colon)
+                        styled_df = status_display_df.copy()
+                        for col in styled_df.columns:
+                            if col not in ['Name', 'Cell Name']:  # Skip non-status columns
+                                styled_df[col] = styled_df[col].apply(extract_status_type_and_color)
+
+                        # Sort by latest month (rightmost status column) with priority order
+                        status_priority = {
+                            "New": 0,
+                            "Regular": 1,
+                            "Irregular": 2,
+                            "Follow Up": 3,
+                            "Red": 4,
+                            "Graduated": 5,
+                        }
+
+                        # Get the latest month column (last non-Name/Cell Name column)
+                        month_cols = [col for col in styled_df.columns if col not in ['Name', 'Cell Name']]
+                        if month_cols:
+                            # Create nested sort key - latest month first, then progressively older months
+                            def create_sort_key(row):
+                                """Create tuple of sort priorities from latest to earliest month."""
+                                sort_tuple = []
+                                # Sort by months from latest (rightmost) to earliest (leftmost)
+                                for month_col in reversed(month_cols):
+                                    status_val = str(row[month_col]).strip()
+                                    priority = status_priority.get(status_val, 999)
+                                    sort_tuple.append(priority)
+                                return tuple(sort_tuple)
+
+                            styled_df['_sort_key'] = styled_df.apply(create_sort_key, axis=1)
+                            styled_df = styled_df.sort_values('_sort_key').drop('_sort_key', axis=1)
+
+                        # Column selection for Status Historical
+                        available_status_cols = styled_df.columns.tolist()
+                        # Default columns: Name + all month columns
+                        default_status_cols = ['Name'] + month_cols
+
+                        st.markdown("**Select columns to display:**")
+                        selected_status_cols = st.multiselect(
+                            "Columns",
+                            options=available_status_cols,
+                            default=default_status_cols,
+                            key="status_historical_columns",
+                            label_visibility="collapsed"
+                        )
+
+                        st.markdown("")
+
+                        st.markdown("#### Cell Health Status")
+
+                        # Apply styling to all cells except Name and Cell Name columns
+                        def highlight_status(row):
+                            """Apply color based on status value."""
+                            styles = []
+                            for i, val in enumerate(row):
+                                col_name = styled_df.columns[i]
+                                if col_name not in ['Name', 'Cell Name']:
+                                    color_style = get_status_color(str(val).strip())
+                                    if color_style:
+                                        styles.append(f"{color_style} text-align: center; font-weight: 600;")
+                                    else:
+                                        styles.append("")
+                                else:
+                                    styles.append("")
+                            return styles
+
+                        if selected_status_cols:
+                            styled_result = styled_df[selected_status_cols].style.apply(highlight_status, axis=1)
+                            st.write(styled_result)
+                        else:
+                            st.warning("Please select at least one column to display.")
+                    else:
+                        st.info(f"No status historical data available for {cell_filter}.")
+                else:
+                    st.info("No status historical data available. Click 'Sync from Google Sheets' to load data.")
+            except Exception as e:
+                st.warning(f"Could not load Status Historical data: {e}")
+
             # LEADERSHIP SECTION
             st.markdown("")
             st.markdown(f"<h2 style='color: {daily_colors['primary']}; font-weight: 900;'>👔 LEADERSHIP</h2>", unsafe_allow_html=True)
@@ -1413,7 +1623,9 @@ if current_page == "cg":
 
                     # Display leadership organized by role
                     for role_name, members in leadership_data.items():
-                        st.markdown(f"<h3 style='color: {daily_colors['primary']}; font-size: 1.1rem;'>{role_name}</h3>", unsafe_allow_html=True)
+                        # Strip the number prefix for display
+                        display_role_name = strip_role_number(role_name)
+                        st.markdown(f"<h3 style='color: {daily_colors['primary']}; font-size: 1.1rem;'>{display_role_name}</h3>", unsafe_allow_html=True)
 
                         for leader in members:
                             since_text = f"Since: {leader['since']}" if leader['since'] else "Since: Not available"
