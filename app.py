@@ -1390,7 +1390,7 @@ if current_page == "cg":
                     </div>
                     """, unsafe_allow_html=True)
                     if st.session_state.expand_red:
-                        st.markdown(f"<p style='color: #e74c3c; font-weight: 600;'>Red (Won't come to church anymore)</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='color: #e74c3c; font-weight: 600;'>Red (Not followed up anymore)</p>", unsafe_allow_html=True)
                         if status_col:
                             red_data = display_df[display_df['status_type'] == "Red"].copy()
                         else:
@@ -1439,7 +1439,7 @@ if current_page == "cg":
                     </div>
                     """, unsafe_allow_html=True)
                     if st.session_state.expand_graduated:
-                        st.markdown(f"<p style='color: #9b59b6; font-weight: 600;'>Graduated (Moved to leadership roles)</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='color: #9b59b6; font-weight: 600;'>Graduated (Still in church but moved up)</p>", unsafe_allow_html=True)
                         if status_col:
                             graduated_data = display_df[display_df['status_type'] == "Graduated"].copy()
                         else:
