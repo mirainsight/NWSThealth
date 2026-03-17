@@ -758,26 +758,26 @@ if current_page == "cg":
                             }
                             redis.set("nwst_cg_combined_data", json.dumps(cache_data), ex=300)
 
-# Sync Ministries Combined data
-                    try:
-                        ministries_worksheet = spreadsheet.worksheet("Ministries Combined")
-                        ministries_data = ministries_worksheet.get_all_values()
+                        # Sync Ministries Combined data
+                        try:
+                            ministries_worksheet = spreadsheet.worksheet("Ministries Combined")
+                            ministries_data = ministries_worksheet.get_all_values()
 
-                        if ministries_data:
-                            ministries_df = pd.DataFrame(ministries_data[1:], columns=ministries_data[0])
+                            if ministries_data:
+                                ministries_df = pd.DataFrame(ministries_data[1:], columns=ministries_data[0])
 
-                            # Cache in Redis
-                            redis = get_redis_client()
-                            if redis:
-                                cache_data = {
-                                    "columns": ministries_df.columns.tolist(),
-                                    "rows": ministries_df.values.tolist()
-                                }
-                                redis.set("nwst_ministries_combined_data", json.dumps(cache_data), ex=300)
-                    except Exception as e:
-                        st.warning(f"⚠️ Could not sync Ministries data: {e}")
+                                # Cache in Redis
+                                redis = get_redis_client()
+                                if redis:
+                                    cache_data = {
+                                        "columns": ministries_df.columns.tolist(),
+                                        "rows": ministries_df.values.tolist()
+                                    }
+                                    redis.set("nwst_ministries_combined_data", json.dumps(cache_data), ex=300)
+                        except Exception as e:
+                            st.warning(f"⚠️ Could not sync Ministries data: {e}")
 
-# Sync Attendance data
+                        # Sync Attendance data
                         try:
                             att_worksheet = spreadsheet.worksheet("Attendance")
                             att_data = att_worksheet.get_all_values()
@@ -867,7 +867,12 @@ if current_page == "cg":
                         # Clear cache to force reload
                         st.cache_data.clear()
                     else:
-                        st.error("No data found in Google Sheet.")
+                        st.error(
+                            "No data found in the **CG Combined** tab. "
+                            "Check that: (1) the tab exists and is named exactly 'CG Combined', "
+                            "(2) it has at least a header row and data rows, "
+                            "(3) the service account has Editor access to the spreadsheet."
+                        )
                 except Exception as e:
                     st.error(f"Error syncing data: {e}")
 
