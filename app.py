@@ -1,6 +1,7 @@
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 import colorsys
+import hashlib
 import random
 import gspread
 from google.oauth2.service_account import Credentials
@@ -398,15 +399,13 @@ def generate_colors_for_date(date_str):
     Returns:
         dict with 'primary', 'light', 'background', 'accent' colors
     """
-    # Use date as seed for consistent colors throughout the day
-    random.seed(hash(date_str) % (10 ** 8))
+    seed = int(hashlib.md5(date_str.encode()).hexdigest(), 16)
+    random.seed(seed)
 
-    # Generate vibrant colors using the seed
     hue = random.random()
-    saturation = 0.85
-    lightness = 0.50
+    saturation = random.uniform(0.7, 1.0)
+    lightness = random.uniform(0.45, 0.65)
 
-    # Generate a primary accent color (bright, vibrant)
     rgb = colorsys.hls_to_rgb(hue, lightness, saturation)
     primary_color = '#{:02x}{:02x}{:02x}'.format(
         int(rgb[0] * 255),
@@ -414,7 +413,6 @@ def generate_colors_for_date(date_str):
         int(rgb[2] * 255)
     )
 
-    # Generate a lighter variant for hover states
     rgb_light = colorsys.hls_to_rgb(hue, min(lightness + 0.2, 0.9), saturation)
     light_color = '#{:02x}{:02x}{:02x}'.format(
         int(rgb_light[0] * 255),
@@ -430,9 +428,12 @@ def generate_colors_for_date(date_str):
     }
 
 def generate_daily_colors():
-    """Generate random colors based on today's date (MYT)."""
-    today_myt = get_today_myt_date()
-    return generate_colors_for_date(today_myt)
+    """Generate random colors based on the most recent Saturday (MYT).
+    Colors change every Saturday and stay the same throughout the week."""
+    today = datetime.strptime(get_today_myt_date(), "%Y-%m-%d")
+    days_since_saturday = (today.weekday() - 5) % 7
+    last_saturday = today - timedelta(days=days_since_saturday)
+    return generate_colors_for_date(last_saturday.strftime("%Y-%m-%d"))
 
 # Page configuration
 st.set_page_config(
@@ -442,7 +443,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Generate daily colors for youthy vibe
+# Weekly accent theme (locked to most recent Saturday MYT, same as CHECK IN attendance app)
 daily_colors = generate_daily_colors()
 
 # Convert hex color to RGB for rgba shadows
@@ -680,9 +681,6 @@ st.markdown(f"""
 
 # Main app content
 st.title("🏥 NWST Health")
-
-# Generate daily colors for youthy vibe
-daily_colors = generate_daily_colors()
 
 # Get page from query parameters
 query_params = st.query_params
