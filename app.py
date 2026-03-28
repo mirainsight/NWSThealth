@@ -1,3 +1,4 @@
+import html
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 import colorsys
@@ -321,13 +322,6 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
     if not disp_name_col:
         disp_name_col = display_df.columns[0]
 
-    def member_label(nm, cl):
-        ns = str(nm).strip() if pd.notna(nm) else ""
-        cs = str(cl).strip() if cl is not None and pd.notna(cl) else ""
-        if cs:
-            return f"{ns} ({cs})"
-        return ns
-
     def display_row_key(nm, cl):
         ns = str(nm).strip() if pd.notna(nm) else ""
         cs = str(cl).strip() if cl is not None and pd.notna(cl) else ""
@@ -349,7 +343,9 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
         if att_row is None and disp_cell_col:
             att_row = key_to_row.get(str(nm).strip() if pd.notna(nm) else "")
 
-        out = {"Member": member_label(nm, cl)}
+        cl_str = str(cl).strip() if cl is not None and pd.notna(cl) else ""
+        nm_str = str(nm).strip() if pd.notna(nm) else ""
+        out = {"Cell": cl_str, "Member": nm_str}
         if att_row is None:
             for lbl in month_labels:
                 out[lbl] = "—"
@@ -374,8 +370,51 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
     result = pd.DataFrame(rows_out)
     if result.empty:
         return result
+    col_order = ["Cell", "Member"] + month_labels
+    result = result[[c for c in col_order if c in result.columns]]
     result = result.assign(_sortkey=result["Member"].fillna("").str.lower())
     return result.sort_values("_sortkey").drop(columns=["_sortkey"]).reset_index(drop=True)
+
+
+def render_monthly_status_html_table(df):
+    """Render monthly status matrix as HTML with bold, glowing status labels (tile-matching colors)."""
+    if df is None or df.empty:
+        return ""
+
+    status_span = {
+        "Regular": "monthly-status-regular",
+        "Irregular": "monthly-status-irregular",
+        "Follow Up": "monthly-status-followup",
+    }
+
+    header_cells = "".join(
+        f"<th>{html.escape(str(c))}</th>" for c in df.columns
+    )
+    body_rows = []
+    for _, row in df.iterrows():
+        cells = []
+        for col in df.columns:
+            raw = row[col]
+            sval = "" if pd.isna(raw) else str(raw).strip()
+            if col in ("Cell", "Member"):
+                cells.append(f"<td>{html.escape(sval)}</td>")
+            else:
+                span_cls = status_span.get(sval, "")
+                if span_cls:
+                    cells.append(
+                        f"<td><span class=\"{span_cls}\">{html.escape(sval)}</span></td>"
+                    )
+                else:
+                    cells.append(f"<td>{html.escape(sval)}</td>")
+        body_rows.append("<tr>" + "".join(cells) + "</tr>")
+
+    return (
+        '<div class="monthly-attendance-table-wrap">'
+        '<table class="monthly-attendance-table">'
+        f"<thead><tr>{header_cells}</tr></thead>"
+        f"<tbody>{''.join(body_rows)}</tbody>"
+        "</table></div>"
+    )
 
 
 @st.cache_data(ttl=300)
@@ -816,6 +855,50 @@ st.markdown(f"""
     .member-tile:hover::before {{
         opacity: 1;
         visibility: visible;
+    }}
+
+    /* Monthly attendance matrix — status glow matches KPI / member-tile accent colors */
+    .monthly-attendance-table-wrap {{
+        overflow-x: auto;
+        margin: 0.35rem 0 1.25rem 0;
+        width: 100%;
+    }}
+    .monthly-attendance-table {{
+        width: 100%;
+        border-collapse: collapse;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.9rem;
+    }}
+    .monthly-attendance-table th {{
+        text-align: left;
+        padding: 0.65rem 0.75rem;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.12);
+        color: #999;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 0.72rem;
+        white-space: nowrap;
+    }}
+    .monthly-attendance-table td {{
+        padding: 0.55rem 0.75rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        color: #e8e8e8;
+    }}
+    .monthly-status-regular {{
+        color: #2ecc71;
+        font-weight: 700;
+        text-shadow: 0 0 10px rgba(46, 204, 113, 0.7), 0 0 20px rgba(46, 204, 113, 0.35);
+    }}
+    .monthly-status-irregular {{
+        color: #e67e22;
+        font-weight: 700;
+        text-shadow: 0 0 10px rgba(230, 126, 34, 0.7), 0 0 20px rgba(230, 126, 34, 0.35);
+    }}
+    .monthly-status-followup {{
+        color: #f39c12;
+        font-weight: 700;
+        text-shadow: 0 0 10px rgba(243, 156, 18, 0.7), 0 0 20px rgba(243, 156, 18, 0.35);
     }}
 
 </style>
@@ -1517,15 +1600,14 @@ if current_page == "cg":
                     f"<h3 style='color: {daily_colors['primary']}; font-weight: 800; font-size: 1.15rem;'>📅 Monthly attendance by member</h3>",
                     unsafe_allow_html=True,
                 )
-                st.caption(
-                    "Each month uses all service columns in the Attendance tab for that calendar month (Malaysia time). "
-                    "Regular = attended ≥75% of those services; Irregular = attended but below 75%; Follow Up = no attendance that month."
-                )
                 att_df_m, cg_df_m = load_attendance_and_cg_dataframes()
                 if att_df_m is not None and cg_df_m is not None:
                     monthly_status_df = build_monthly_member_status_table(display_df, att_df_m, cg_df_m)
                     if monthly_status_df is not None and not monthly_status_df.empty:
-                        st.dataframe(monthly_status_df, use_container_width=True, hide_index=True)
+                        st.markdown(
+                            render_monthly_status_html_table(monthly_status_df),
+                            unsafe_allow_html=True,
+                        )
                     else:
                         st.info(
                             "No monthly breakdown yet. Check that Attendance row 1 from column D has parseable dates "
