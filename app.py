@@ -271,6 +271,7 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
     """
     One row per member in display_df; columns Month (MMM YY) with Regular / Irregular / Follow Up.
     Months are those present in Attendance headers (cols D+), up to current calendar month (MYT).
+    Rows are sorted by the latest month's status (Follow Up, then Irregular, then Regular), then by name.
     """
     if display_df is None or display_df.empty or att_df is None or att_df.empty:
         return pd.DataFrame()
@@ -372,12 +373,27 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
         return result
     col_order = ["Cell", "Member"] + month_labels
     result = result[[c for c in col_order if c in result.columns]]
-    result = result.assign(_sortkey=result["Member"].fillna("").str.lower())
-    return result.sort_values("_sortkey").drop(columns=["_sortkey"]).reset_index(drop=True)
+
+    latest_month_col = month_labels[-1]
+    status_rank = {"Follow Up": 0, "Irregular": 1, "Regular": 2}
+
+    def _rank_latest_status(cell_val):
+        s = "" if pd.isna(cell_val) else str(cell_val).strip()
+        return status_rank.get(s, 99)
+
+    result = result.assign(
+        _status_rank=result[latest_month_col].apply(_rank_latest_status),
+        _member_key=result["Member"].fillna("").str.lower(),
+    )
+    return (
+        result.sort_values(["_status_rank", "_member_key"])
+        .drop(columns=["_status_rank", "_member_key"])
+        .reset_index(drop=True)
+    )
 
 
 def render_monthly_status_html_table(df):
-    """Render monthly status matrix as HTML with bold, glowing status labels (tile-matching colors)."""
+    """Render monthly status matrix as HTML with bold status labels (tile-matching colors)."""
     if df is None or df.empty:
         return ""
 
@@ -857,7 +873,7 @@ st.markdown(f"""
         visibility: visible;
     }}
 
-    /* Monthly attendance matrix — status glow matches KPI / member-tile accent colors */
+    /* Monthly attendance matrix — status colors match KPI / member-tile accents */
     .monthly-attendance-table-wrap {{
         overflow-x: auto;
         margin: 0.35rem 0 1.25rem 0;
@@ -888,17 +904,14 @@ st.markdown(f"""
     .monthly-status-regular {{
         color: #2ecc71;
         font-weight: 700;
-        text-shadow: 0 0 10px rgba(46, 204, 113, 0.7), 0 0 20px rgba(46, 204, 113, 0.35);
     }}
     .monthly-status-irregular {{
         color: #e67e22;
         font-weight: 700;
-        text-shadow: 0 0 10px rgba(230, 126, 34, 0.7), 0 0 20px rgba(230, 126, 34, 0.35);
     }}
     .monthly-status-followup {{
         color: #f39c12;
         font-weight: 700;
-        text-shadow: 0 0 10px rgba(243, 156, 18, 0.7), 0 0 20px rgba(243, 156, 18, 0.35);
     }}
 
 </style>
