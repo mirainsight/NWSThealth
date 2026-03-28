@@ -150,6 +150,235 @@ def get_ministries_data():
     return ministries_df
 
 @st.cache_data(ttl=300)
+def load_attendance_and_cg_dataframes():
+    """Load Attendance + CG Combined sheets as DataFrames. Returns (att_df, cg_df) or (None, None)."""
+    client = get_google_sheet_client()
+    if not client:
+        return None, None
+
+    try:
+        spreadsheet = client.open_by_key("1uexbQinWl1r6NgmSrmOXPtWs-q4OJV3o1OwLywMWzzY")
+        att_worksheet = spreadsheet.worksheet("Attendance")
+        att_data = att_worksheet.get_all_values()
+        cg_worksheet = spreadsheet.worksheet("CG Combined")
+        cg_data = cg_worksheet.get_all_values()
+
+        if not att_data or len(att_data) < 2:
+            return None, None
+        if not cg_data or len(cg_data) < 2:
+            return None, None
+
+        att_df = pd.DataFrame(att_data[1:], columns=att_data[0])
+        cg_df = pd.DataFrame(cg_data[1:], columns=cg_data[0])
+        return att_df, cg_df
+    except Exception:
+        return None, None
+
+
+def _resolve_cg_name_cell_columns(cg_df):
+    cg_name_col = None
+    cg_cell_col = None
+    for col in cg_df.columns:
+        if col.lower().strip() in ['name', 'member name', 'member']:
+            cg_name_col = col
+        if col.lower().strip() in ['cell', 'group']:
+            cg_cell_col = col
+    if not cg_name_col:
+        cg_name_col = cg_df.columns[0]
+    return cg_name_col, cg_cell_col
+
+
+def _compute_attendance_stats_from_frames(att_df, cg_df):
+    """Build attendance_stats dict (Name + Cell key) from raw sheet frames."""
+    attendance_stats = {}
+    cg_name_col, cg_cell_col = _resolve_cg_name_cell_columns(cg_df)
+    att_name_col = att_df.columns[0] if len(att_df.columns) > 0 else None
+
+    if not att_name_col:
+        return attendance_stats
+
+    for att_name in att_df[att_name_col].unique():
+        if pd.isna(att_name) or att_name == '':
+            continue
+
+        att_name_str = str(att_name).strip()
+        member_att_data = att_df[att_df[att_name_col] == att_name]
+
+        attendance_count = 0
+        total_services = 0
+
+        for col_idx, col in enumerate(att_df.columns):
+            if col_idx >= 3:
+                total_services += 1
+                values = member_att_data[col].values
+                if len(values) > 0 and str(values[0]).strip() == '1':
+                    attendance_count += 1
+
+        cell_info = ""
+        if cg_name_col and cg_cell_col:
+            cg_match = cg_df[cg_df[cg_name_col].str.strip().str.lower() == att_name_str.lower()]
+            if not cg_match.empty:
+                cell_info = " - " + str(cg_match[cg_cell_col].iloc[0]).strip()
+
+        if total_services > 0:
+            key = att_name_str + cell_info
+            attendance_stats[key] = {
+                'attendance': attendance_count,
+                'total': total_services,
+                'percentage': round(attendance_count / total_services * 100) if total_services > 0 else 0
+            }
+
+    return attendance_stats
+
+
+def categorize_member_status(attendance_count, total_possible):
+    """Categorize member as Regular, Irregular, or Follow Up based on attendance."""
+    if attendance_count >= (total_possible * 0.75):  # 75% and above attendance = Regular
+        return "Regular"
+    elif attendance_count > 0:  # Below 75% = Irregular
+        return "Irregular"
+    else:  # 0% attendance = Follow Up
+        return "Follow Up"
+
+
+def parse_attendance_column_date(cell_val):
+    """Parse a single Attendance sheet header cell into a date, or None."""
+    if cell_val is None or (isinstance(cell_val, float) and pd.isna(cell_val)):
+        return None
+    s = str(cell_val).strip()
+    if not s:
+        return None
+    for fmt in ("%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%y", "%d/%m/%y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _attendance_row_lookup_key(row, att_name_col, cg_df, cg_name_col, cg_cell_col):
+    att_name_str = str(row[att_name_col]).strip()
+    cell_info = ""
+    if cg_name_col and cg_cell_col:
+        cg_match = cg_df[cg_df[cg_name_col].str.strip().str.lower() == att_name_str.lower()]
+        if not cg_match.empty:
+            cell_info = " - " + str(cg_match[cg_cell_col].iloc[0]).strip()
+    return att_name_str + cell_info
+
+
+def build_monthly_member_status_table(display_df, att_df, cg_df):
+    """
+    One row per member in display_df; columns Month (MMM YY) with Regular / Irregular / Follow Up.
+    Months are those present in Attendance headers (cols D+), up to current calendar month (MYT).
+    """
+    if display_df is None or display_df.empty or att_df is None or att_df.empty:
+        return pd.DataFrame()
+
+    cg_name_col, cg_cell_col = _resolve_cg_name_cell_columns(cg_df)
+    att_name_col = att_df.columns[0] if len(att_df.columns) > 0 else None
+    if not att_name_col:
+        return pd.DataFrame()
+
+    month_to_colnames = {}
+    for col_idx, col in enumerate(att_df.columns):
+        if col_idx < 3:
+            continue
+        d = parse_attendance_column_date(col)
+        if d is None:
+            continue
+        ym = (d.year, d.month)
+        month_to_colnames.setdefault(ym, []).append(col)
+
+    myt_today = datetime.now(timezone(timedelta(hours=8))).date()
+    cur_ym = (myt_today.year, myt_today.month)
+    month_keys = sorted(ym for ym in month_to_colnames if ym <= cur_ym)
+    if not month_keys:
+        return pd.DataFrame()
+
+    month_labels = []
+    for y, m in month_keys:
+        month_labels.append(datetime(y, m, 1).strftime("%b %y"))
+
+    # Map stats key -> attendance row (first match)
+    key_to_row = {}
+    for _, row in att_df.iterrows():
+        if pd.isna(row[att_name_col]) or str(row[att_name_col]).strip() == '':
+            continue
+        k = _attendance_row_lookup_key(row, att_name_col, cg_df, cg_name_col, cg_cell_col)
+        key_to_row[k] = row
+
+    disp_name_col = None
+    disp_cell_col = None
+    for col in display_df.columns:
+        col_lower = col.lower().strip()
+        if col_lower in ['cell', 'group']:
+            disp_cell_col = col
+        if col_lower in ['name', 'member name', 'member'] or (
+            any(x in col_lower for x in ['name', 'member']) and 'last' not in col_lower
+        ):
+            if disp_name_col is None:
+                disp_name_col = col
+    if not disp_name_col:
+        disp_name_col = display_df.columns[0]
+
+    def member_label(nm, cl):
+        ns = str(nm).strip() if pd.notna(nm) else ""
+        cs = str(cl).strip() if cl is not None and pd.notna(cl) else ""
+        if cs:
+            return f"{ns} ({cs})"
+        return ns
+
+    def display_row_key(nm, cl):
+        ns = str(nm).strip() if pd.notna(nm) else ""
+        cs = str(cl).strip() if cl is not None and pd.notna(cl) else ""
+        if cs:
+            return f"{ns} - {cs}"
+        return ns
+
+    rows_out = []
+    seen = set()
+    for _, dr in display_df.iterrows():
+        nm = dr.get(disp_name_col)
+        cl = dr.get(disp_cell_col) if disp_cell_col else ""
+        mk = display_row_key(nm, cl)
+        if mk in seen:
+            continue
+        seen.add(mk)
+
+        att_row = key_to_row.get(mk)
+        if att_row is None and disp_cell_col:
+            att_row = key_to_row.get(str(nm).strip() if pd.notna(nm) else "")
+
+        out = {"Member": member_label(nm, cl)}
+        if att_row is None:
+            for lbl in month_labels:
+                out[lbl] = "—"
+            rows_out.append(out)
+            continue
+
+        for ym, lbl in zip(month_keys, month_labels):
+            cols_m = month_to_colnames.get(ym, [])
+            present = 0
+            total = 0
+            for c in cols_m:
+                total += 1
+                v = att_row.get(c)
+                if v is not None and str(v).strip() == '1':
+                    present += 1
+            if total == 0:
+                out[lbl] = "—"
+            else:
+                out[lbl] = categorize_member_status(present, total)
+        rows_out.append(out)
+
+    result = pd.DataFrame(rows_out)
+    if result.empty:
+        return result
+    result = result.assign(_sortkey=result["Member"].fillna("").str.lower())
+    return result.sort_values("_sortkey").drop(columns=["_sortkey"]).reset_index(drop=True)
+
+
+@st.cache_data(ttl=300)
 def get_attendance_data():
     """Load attendance data from Google Sheet 'Attendance' tab using only column A."""
     redis = get_redis_client()
@@ -161,108 +390,21 @@ def get_attendance_data():
         except Exception:
             pass
 
-    client = get_google_sheet_client()
-    if not client:
+    att_df, cg_df = load_attendance_and_cg_dataframes()
+    if att_df is None or cg_df is None:
         return {}
 
-    try:
-        spreadsheet = client.open_by_key("1uexbQinWl1r6NgmSrmOXPtWs-q4OJV3o1OwLywMWzzY")
+    attendance_stats = _compute_attendance_stats_from_frames(att_df, cg_df)
 
-        # Load both sheets
-        att_worksheet = spreadsheet.worksheet("Attendance")
-        att_data = att_worksheet.get_all_values()
+    redis = get_redis_client()
+    if redis:
+        try:
+            redis.set("nwst_attendance_stats", json.dumps(attendance_stats), ex=300)
+        except Exception:
+            pass
 
-        cg_worksheet = spreadsheet.worksheet("CG Combined")
-        cg_data = cg_worksheet.get_all_values()
+    return attendance_stats
 
-        if not att_data or len(att_data) < 2:
-            return {}
-
-        if not cg_data or len(cg_data) < 2:
-            return {}
-
-        # Parse Attendance sheet - only use column A (index 0)
-        att_headers = att_data[0]
-        att_df = pd.DataFrame(att_data[1:], columns=att_headers)
-
-        # Calculate attendance stats using only column A for names and columns from D onwards
-        attendance_stats = {}
-
-        # Find name column in attendance (usually column A)
-        att_name_col = att_df.columns[0] if len(att_df.columns) > 0 else None
-
-        # Parse CG Combined to get Name and Cell mapping
-        cg_headers = cg_data[0]
-        cg_df = pd.DataFrame(cg_data[1:], columns=cg_headers)
-
-        # Find name and cell columns in CG Combined
-        cg_name_col = None
-        cg_cell_col = None
-        for col in cg_df.columns:
-            if col.lower().strip() in ['name', 'member name', 'member']:
-                cg_name_col = col
-            if col.lower().strip() in ['cell', 'group']:
-                cg_cell_col = col
-
-        if not cg_name_col:
-            cg_name_col = cg_df.columns[0]
-
-        # Create a mapping of attendance names from column A only
-        if att_name_col:
-            for att_name in att_df[att_name_col].unique():
-                if pd.isna(att_name) or att_name == '':
-                    continue
-
-                att_name_str = str(att_name).strip()
-                member_att_data = att_df[att_df[att_name_col] == att_name]
-
-                # Count attendance only from columns D onwards (skip A, B, C)
-                attendance_count = 0
-                total_services = 0
-
-                for col_idx, col in enumerate(att_df.columns):
-                    if col_idx >= 3:  # Skip columns A (0), B (1), C (2)
-                        total_services += 1
-                        values = member_att_data[col].values
-                        if len(values) > 0 and str(values[0]).strip() == '1':
-                            attendance_count += 1
-
-                # Find the cell for this person from CG Combined
-                cell_info = ""
-                if cg_name_col and cg_cell_col:
-                    cg_match = cg_df[cg_df[cg_name_col].str.strip().str.lower() == att_name_str.lower()]
-                    if not cg_match.empty:
-                        cell_info = " - " + str(cg_match[cg_cell_col].iloc[0]).strip()
-
-                # Use Name + Cell as key
-                if total_services > 0:
-                    key = att_name_str + cell_info
-                    attendance_stats[key] = {
-                        'attendance': attendance_count,
-                        'total': total_services,
-                        'percentage': round(attendance_count / total_services * 100) if total_services > 0 else 0
-                    }
-
-        # Cache in Redis
-        redis = get_redis_client()
-        if redis:
-            try:
-                redis.set("nwst_attendance_stats", json.dumps(attendance_stats), ex=300)
-            except Exception:
-                pass
-
-        return attendance_stats
-    except Exception:
-        return {}
-
-def categorize_member_status(attendance_count, total_possible):
-    """Categorize member as Regular, Irregular, or Follow Up based on attendance."""
-    if attendance_count >= (total_possible * 0.75):  # 75% and above attendance = Regular
-        return "Regular"
-    elif attendance_count > 0:  # Below 75% = Irregular
-        return "Irregular"
-    else:  # 0% attendance = Follow Up
-        return "Follow Up"
 
 def get_attendance_text(name, cell, attendance_stats):
     """Get attendance text for a member from attendance_stats dict using Name + Cell."""
@@ -1369,6 +1511,28 @@ if current_page == "cg":
                             st.markdown(tiles_html, unsafe_allow_html=True)
                         else:
                             st.dataframe(graduated_data, use_container_width=True)
+
+                st.markdown("")
+                st.markdown(
+                    f"<h3 style='color: {daily_colors['primary']}; font-weight: 800; font-size: 1.15rem;'>📅 Monthly attendance by member</h3>",
+                    unsafe_allow_html=True,
+                )
+                st.caption(
+                    "Each month uses all service columns in the Attendance tab for that calendar month (Malaysia time). "
+                    "Regular = attended ≥75% of those services; Irregular = attended but below 75%; Follow Up = no attendance that month."
+                )
+                att_df_m, cg_df_m = load_attendance_and_cg_dataframes()
+                if att_df_m is not None and cg_df_m is not None:
+                    monthly_status_df = build_monthly_member_status_table(display_df, att_df_m, cg_df_m)
+                    if monthly_status_df is not None and not monthly_status_df.empty:
+                        st.dataframe(monthly_status_df, use_container_width=True, hide_index=True)
+                    else:
+                        st.info(
+                            "No monthly breakdown yet. Check that Attendance row 1 from column D has parseable dates "
+                            "(e.g. DD/MM/YYYY or MM/DD/YYYY)."
+                        )
+                else:
+                    st.info("Could not load the Attendance sheet for the monthly table.")
             else:
                 st.info("No cell health data available.")
 
