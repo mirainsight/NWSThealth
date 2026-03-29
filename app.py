@@ -271,8 +271,7 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
     """
     One row per member in display_df; columns Month (MMM YY) with Regular / Irregular / Follow Up.
     Months are those present in Attendance headers (cols D+), up to current calendar month (MYT).
-    Rows are sorted by each month's status in reverse chronological order (latest month first, same
-    Follow Up / Irregular / Regular priority at each level), then by member name.
+    Rows are sorted alphabetically by member name (case-insensitive), then by cell for stable ties.
     """
     if display_df is None or display_df.empty or att_df is None or att_df.empty:
         return pd.DataFrame()
@@ -375,20 +374,13 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
     col_order = ["Cell", "Member"] + month_labels
     result = result[[c for c in col_order if c in result.columns]]
 
-    status_rank = {"Follow Up": 0, "Irregular": 1, "Regular": 2}
-
-    def _status_sort_rank(cell_val):
-        s = "" if pd.isna(cell_val) else str(cell_val).strip()
-        return status_rank.get(s, 99)
-
-    bucket_cols = []
-    for i, lbl in enumerate(reversed(month_labels)):
-        cname = f"_sort_bucket_{i}"
-        result[cname] = result[lbl].apply(_status_sort_rank)
-        bucket_cols.append(cname)
-    result["_member_key"] = result["Member"].fillna("").str.lower()
-    drop_cols = bucket_cols + ["_member_key"]
-    return result.sort_values(bucket_cols + ["_member_key"]).drop(columns=drop_cols).reset_index(drop=True)
+    result["_member_key"] = result["Member"].fillna("").astype(str).str.strip().str.lower()
+    result["_cell_key"] = result["Cell"].fillna("").astype(str).str.strip().str.lower()
+    return (
+        result.sort_values(["_member_key", "_cell_key"])
+        .drop(columns=["_member_key", "_cell_key"])
+        .reset_index(drop=True)
+    )
 
 
 def render_monthly_status_html_table(df):
