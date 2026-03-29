@@ -269,8 +269,10 @@ def _attendance_row_lookup_key(row, att_name_col, cg_df, cg_name_col, cg_cell_co
 
 def build_monthly_member_status_table(display_df, att_df, cg_df):
     """
-    One row per member in display_df; columns Month (MMM YY) with Regular / Irregular / Follow Up.
+    One row per member in display_df; columns Cell, Member, Attendance (present/total + rate %),
+    then each Month (MMM YY) with Regular / Irregular / Follow Up.
     Months are those present in Attendance headers (cols D+), up to current calendar month (MYT).
+    Attendance aggregates the same dated columns as the month grid (weeks marked 1 = present).
     Rows are sorted alphabetically by member name (case-insensitive), then by cell for stable ties.
     """
     if display_df is None or display_df.empty or att_df is None or att_df.empty:
@@ -350,6 +352,7 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
         if att_row is None:
             for lbl in month_labels:
                 out[lbl] = "—"
+            out["Attendance"] = "—"
             rows_out.append(out)
             continue
 
@@ -366,12 +369,26 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
                 out[lbl] = "—"
             else:
                 out[lbl] = categorize_member_status(present, total)
+
+        all_present = 0
+        all_total = 0
+        for ym in month_keys:
+            for c in month_to_colnames.get(ym, []):
+                all_total += 1
+                v = att_row.get(c)
+                if v is not None and str(v).strip() == '1':
+                    all_present += 1
+        if all_total == 0:
+            out["Attendance"] = "—"
+        else:
+            att_pct = round(100.0 * all_present / all_total, 1)
+            out["Attendance"] = f"{all_present}/{all_total} ({att_pct}%)"
         rows_out.append(out)
 
     result = pd.DataFrame(rows_out)
     if result.empty:
         return result
-    col_order = ["Cell", "Member"] + month_labels
+    col_order = ["Cell", "Member", "Attendance"] + month_labels
     result = result[[c for c in col_order if c in result.columns]]
 
     result["_member_key"] = result["Member"].fillna("").astype(str).str.strip().str.lower()
@@ -403,7 +420,7 @@ def render_monthly_status_html_table(df):
         for col in df.columns:
             raw = row[col]
             sval = "" if pd.isna(raw) else str(raw).strip()
-            if col in ("Cell", "Member"):
+            if col in ("Cell", "Member", "Attendance"):
                 cells.append(f"<td>{html.escape(sval)}</td>")
             else:
                 span_cls = status_span.get(sval, "")
