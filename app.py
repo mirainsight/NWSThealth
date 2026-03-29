@@ -269,10 +269,10 @@ def _attendance_row_lookup_key(row, att_name_col, cg_df, cg_name_col, cg_cell_co
 
 def build_monthly_member_status_table(display_df, att_df, cg_df):
     """
-    One row per member in display_df; columns Cell, Member, Attendance (present/total + rate %),
+    One row per member in display_df; columns Cell, Member, Health (present/total + rate %),
     then each Month (MMM YY) with Regular / Irregular / Follow Up.
     Months are those present in Attendance headers (cols D+), up to current calendar month (MYT).
-    Attendance aggregates the same dated columns as the month grid (weeks marked 1 = present).
+    Health aggregates the same dated columns as the month grid (weeks marked 1 = present).
     Rows are sorted alphabetically by member name (case-insensitive), then by cell for stable ties.
     """
     if display_df is None or display_df.empty or att_df is None or att_df.empty:
@@ -352,7 +352,7 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
         if att_row is None:
             for lbl in month_labels:
                 out[lbl] = "—"
-            out["Attendance"] = "—"
+            out["Health"] = "—"
             rows_out.append(out)
             continue
 
@@ -379,16 +379,16 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
                 if v is not None and str(v).strip() == '1':
                     all_present += 1
         if all_total == 0:
-            out["Attendance"] = "—"
+            out["Health"] = "—"
         else:
             att_pct = round(100.0 * all_present / all_total, 1)
-            out["Attendance"] = f"{all_present}/{all_total} ({att_pct}%)"
+            out["Health"] = f"{all_present}/{all_total} ({att_pct}%)"
         rows_out.append(out)
 
     result = pd.DataFrame(rows_out)
     if result.empty:
         return result
-    col_order = ["Cell", "Member", "Attendance"] + month_labels
+    col_order = ["Cell", "Member", "Health"] + month_labels
     result = result[[c for c in col_order if c in result.columns]]
 
     result["_member_key"] = result["Member"].fillna("").astype(str).str.strip().str.lower()
@@ -398,6 +398,35 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
         .drop(columns=["_member_key", "_cell_key"])
         .reset_index(drop=True)
     )
+
+
+def _monthly_table_month_columns(df):
+    """Columns after Cell / Member / Health (chronological month labels)."""
+    fixed = {"Cell", "Member", "Health"}
+    return [c for c in df.columns if c not in fixed]
+
+
+def _worst_status_last_three_months(row, month_cols):
+    """
+    Roll-up for Health column coloring: worst of the last 3 month columns
+    (Follow Up > Irregular > Regular). Ignores '—' and unknown values.
+    """
+    if not month_cols:
+        return None
+    lookback = month_cols[-3:]
+    rank = {"Follow Up": 0, "Irregular": 1, "Regular": 2}
+    worst_label = None
+    worst_r = 99
+    for c in lookback:
+        raw = row.get(c)
+        s = "" if pd.isna(raw) else str(raw).strip()
+        if s not in rank:
+            continue
+        r = rank[s]
+        if r < worst_r:
+            worst_r = r
+            worst_label = s
+    return worst_label
 
 
 def render_monthly_status_html_table(df):
@@ -411,16 +440,29 @@ def render_monthly_status_html_table(df):
         "Follow Up": "monthly-status-followup",
     }
 
+    month_cols = _monthly_table_month_columns(df)
+
     header_cells = "".join(
         f"<th>{html.escape(str(c))}</th>" for c in df.columns
     )
     body_rows = []
     for _, row in df.iterrows():
         cells = []
+        roll_status = _worst_status_last_three_months(row, month_cols)
         for col in df.columns:
             raw = row[col]
             sval = "" if pd.isna(raw) else str(raw).strip()
-            if col in ("Cell", "Member", "Attendance"):
+            if col == "Health":
+                att_cls = status_span.get(roll_status, "") if roll_status else ""
+                if att_cls:
+                    cells.append(
+                        f"<td class=\"monthly-attendance-rate-cell\"><span class=\"{att_cls}\">{html.escape(sval)}</span></td>"
+                    )
+                else:
+                    cells.append(
+                        f"<td class=\"monthly-attendance-rate-cell\">{html.escape(sval)}</td>"
+                    )
+            elif col in ("Cell", "Member"):
                 cells.append(f"<td>{html.escape(sval)}</td>")
             else:
                 span_cls = status_span.get(sval, "")
@@ -908,6 +950,39 @@ st.markdown(f"""
         padding: 0.55rem 0.75rem;
         border-bottom: 1px solid rgba(255, 255, 255, 0.06);
         color: #e8e8e8;
+    }}
+    .monthly-attendance-table th:nth-child(1),
+    .monthly-attendance-table td:nth-child(1) {{
+        max-width: 6.5rem;
+        width: 8%;
+    }}
+    .monthly-attendance-table th:nth-child(2),
+    .monthly-attendance-table td:nth-child(2) {{
+        max-width: 11rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }}
+    .monthly-attendance-table th:nth-child(3),
+    .monthly-attendance-table td:nth-child(3) {{
+        max-width: 5.75rem;
+        width: 1%;
+        white-space: nowrap;
+        padding-left: 0.45rem;
+        padding-right: 0.45rem;
+        font-size: 0.82rem;
+    }}
+    .monthly-attendance-table th:nth-child(n+4),
+    .monthly-attendance-table td:nth-child(n+4) {{
+        max-width: 3.75rem;
+        width: 1%;
+        white-space: nowrap;
+        text-align: center;
+        padding: 0.45rem 0.35rem;
+        font-size: 0.82rem;
+    }}
+    .monthly-attendance-table .monthly-attendance-rate-cell span {{
+        font-weight: 700;
     }}
     .monthly-status-regular {{
         color: #2ecc71;
