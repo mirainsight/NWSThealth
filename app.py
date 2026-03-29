@@ -5,10 +5,18 @@ import colorsys
 import hashlib
 import random
 import gspread
+from gspread.exceptions import WorksheetNotFound
 from google.oauth2.service_account import Credentials
 import pandas as pd
 import json
+from collections import defaultdict
+import plotly.express as px
 from upstash_redis import Redis
+
+# Same spreadsheet as CG Combined / Attendance (NWST Health)
+NWST_HEALTH_SHEET_ID = "1uexbQinWl1r6NgmSrmOXPtWs-q4OJV3o1OwLywMWzzY"
+NWST_KEY_VALUES_TAB = "Key Values"
+NWST_ATTENDANCE_ANALYTICS_TAB = "Attendance Analytics"
 
 @st.cache_resource
 def get_redis_client():
@@ -57,7 +65,7 @@ def load_sheet_data():
         return pd.DataFrame()
 
     try:
-        spreadsheet = client.open_by_key("1uexbQinWl1r6NgmSrmOXPtWs-q4OJV3o1OwLywMWzzY")
+        spreadsheet = client.open_by_key(NWST_HEALTH_SHEET_ID)
         worksheet = spreadsheet.worksheet("CG Combined")
         data = worksheet.get_all_values()
 
@@ -104,7 +112,7 @@ def load_ministries_sheet_data():
         return pd.DataFrame()
 
     try:
-        spreadsheet = client.open_by_key("1uexbQinWl1r6NgmSrmOXPtWs-q4OJV3o1OwLywMWzzY")
+        spreadsheet = client.open_by_key(NWST_HEALTH_SHEET_ID)
         worksheet = spreadsheet.worksheet("Ministries Combined")
         data = worksheet.get_all_values()
 
@@ -158,7 +166,7 @@ def load_attendance_and_cg_dataframes():
         return None, None
 
     try:
-        spreadsheet = client.open_by_key("1uexbQinWl1r6NgmSrmOXPtWs-q4OJV3o1OwLywMWzzY")
+        spreadsheet = client.open_by_key(NWST_HEALTH_SHEET_ID)
         att_worksheet = spreadsheet.worksheet("Attendance")
         att_data = att_worksheet.get_all_values()
         cg_worksheet = spreadsheet.worksheet("CG Combined")
@@ -174,6 +182,336 @@ def load_attendance_and_cg_dataframes():
         return att_df, cg_df
     except Exception:
         return None, None
+
+
+@st.cache_data(ttl=300)
+def nwst_get_attendance_analytics_data(sheet_id):
+    """Load 'Attendance Analytics' sheet — Saturdays only (same shape as CHECK IN attendance_app)."""
+    client = get_google_sheet_client()
+    if not client:
+        return None, [], "Could not connect to Google Sheets."
+
+    try:
+        spreadsheet = client.open_by_key(sheet_id)
+        try:
+            analytics_sheet = spreadsheet.worksheet(NWST_ATTENDANCE_ANALYTICS_TAB)
+        except WorksheetNotFound:
+            return None, [], f"Tab '{NWST_ATTENDANCE_ANALYTICS_TAB}' not found."
+
+        all_values = analytics_sheet.get_all_values()
+        if len(all_values) < 2:
+            return None, [], "No data in Attendance Analytics."
+
+        header_row = all_values[0]
+        dates = []
+        saturday_col_indices = []
+
+        for col_idx, cell in enumerate(header_row[3:], start=3):
+            if not cell or not str(cell).strip():
+                continue
+            cell = str(cell).strip()
+            try:
+                date_obj = datetime.strptime(cell, "%m/%d/%Y")
+                if date_obj.weekday() == 5:
+                    dates.append(date_obj)
+                    saturday_col_indices.append(col_idx)
+            except ValueError:
+                try:
+                    date_obj = datetime.strptime(cell, "%d/%m/%Y")
+                    if date_obj.weekday() == 5:
+                        dates.append(date_obj)
+                        saturday_col_indices.append(col_idx)
+                except ValueError:
+                    continue
+
+        if not dates:
+            return None, [], "No Saturday columns found in Attendance Analytics."
+
+        sorted_pairs = sorted(zip(dates, saturday_col_indices), key=lambda x: x[0])
+        dates = [pair[0] for pair in sorted_pairs]
+        saturday_col_indices = [pair[1] for pair in sorted_pairs]
+        saturday_dates_short = [d.strftime("%b %d") for d in dates]
+
+        data_rows = []
+        for row in all_values[1:]:
+            if len(row) < 3:
+                continue
+            name = row[1].strip() if len(row) > 1 and row[1] else ""
+            cell_group = row[2].strip() if len(row) > 2 and row[2] else ""
+            if not name or name.lower() == "name":
+                continue
+            attendance = []
+            for col_idx in saturday_col_indices:
+                if col_idx < len(row):
+                    val = row[col_idx].strip()
+                    attendance.append(1 if val == "1" else 0)
+                else:
+                    attendance.append(0)
+            data_rows.append(
+                {
+                    "Name": name,
+                    "Cell Group": cell_group,
+                    "Name - Cell Group": f"{name} - {cell_group}" if cell_group else name,
+                    **{saturday_dates_short[i]: attendance[i] for i in range(len(attendance))},
+                }
+            )
+
+        if not data_rows:
+            return None, [], "No attendance rows found."
+
+        df = pd.DataFrame(data_rows)
+        df = df.drop_duplicates(subset=["Name - Cell Group"], keep="first")
+        return df, saturday_dates_short, None
+    except Exception as e:
+        return None, [], f"Error loading analytics: {str(e)}"
+
+
+@st.cache_data(ttl=300)
+def nwst_get_cell_zone_mapping(sheet_id):
+    """Cell (col A) → zone (col C) from Key Values."""
+    client = get_google_sheet_client()
+    if not client:
+        return {}
+    try:
+        spreadsheet = client.open_by_key(sheet_id)
+        try:
+            key_values_sheet = spreadsheet.worksheet(NWST_KEY_VALUES_TAB)
+        except WorksheetNotFound:
+            return {}
+        all_values = key_values_sheet.get_all_values()
+        if len(all_values) <= 1:
+            return {}
+        cell_to_zone = {}
+        for row in all_values[1:]:
+            if len(row) >= 3:
+                cn = row[0].strip()
+                zn = row[2].strip()
+                if cn and zn:
+                    cell_to_zone[cn.lower()] = zn
+        return cell_to_zone
+    except Exception:
+        return {}
+
+
+def _nwst_resolve_display_name_cell_cols(display_df):
+    disp_name_col = None
+    disp_cell_col = None
+    for col in display_df.columns:
+        col_lower = col.lower().strip()
+        if col_lower in ["cell", "group"]:
+            disp_cell_col = col
+        if col_lower in ["name", "member name", "member"] or (
+            any(x in col_lower for x in ["name", "member"]) and "last" not in col_lower
+        ):
+            if disp_name_col is None:
+                disp_name_col = col
+    if not disp_name_col:
+        disp_name_col = display_df.columns[0]
+    return disp_name_col, disp_cell_col
+
+
+def _nwst_zone_for_cell_map(cg, cell_to_zone_map):
+    return cell_to_zone_map.get(str(cg).lower(), cg) if cg else "Unknown"
+
+
+def _nwst_exclude_rate_chart_cell(cg, zone_name):
+    if not str(cg).strip():
+        return True
+    if str(zone_name).strip().lower() == "archive":
+        return True
+    n = str(cg).strip().lower().lstrip("*").strip()
+    if n == "not sure yet" or n.startswith("not sure yet"):
+        return True
+    return False
+
+
+def render_nwst_service_attendance_rate_charts(display_df, daily_colors):
+    """Per-zone Saturday attendance rate lines — filtered by current display_df (global Cell / Status)."""
+    if display_df is None or display_df.empty:
+        return
+
+    disp_name_col, disp_cell_col = _nwst_resolve_display_name_cell_cols(display_df)
+    if not disp_cell_col:
+        st.info("Add a Cell / Group column to CG data to show attendance rate by cell charts.")
+        return
+
+    ana_df, date_cols, err = nwst_get_attendance_analytics_data(NWST_HEALTH_SHEET_ID)
+    if err:
+        st.warning(err)
+        return
+    if ana_df is None or ana_df.empty or not date_cols:
+        st.info("No Attendance Analytics data to chart.")
+        return
+
+    cell_to_zone_map = nwst_get_cell_zone_mapping(NWST_HEALTH_SHEET_ID)
+
+    keys = display_df[[disp_name_col, disp_cell_col]].copy()
+    keys["_n"] = keys[disp_name_col].astype(str).str.strip()
+    keys["_c"] = keys[disp_cell_col].astype(str).str.strip()
+    keys = keys[["_n", "_c"]].drop_duplicates()
+
+    work = ana_df.copy()
+    work["_n"] = work["Name"].astype(str).str.strip()
+    work["_c"] = work["Cell Group"].astype(str).str.strip()
+    work_df = work.merge(keys, on=["_n", "_c"], how="inner").drop(columns=["_n", "_c"])
+
+    if work_df.empty:
+        st.info(
+            "No matching rows between **Attendance Analytics** and the filtered member list. "
+            "Check names and cell names match CG Combined."
+        )
+        return
+
+    _mdf = display_df.dropna(subset=[disp_cell_col, disp_name_col]).copy()
+    _mdf["_c"] = _mdf[disp_cell_col].astype(str).str.strip()
+    members_per_cell = _mdf.groupby("_c")[disp_name_col].nunique().to_dict()
+
+    colors = {
+        "primary": daily_colors["primary"],
+        "background": daily_colors["background"],
+        "card_bg": "#1a1a1a",
+        "text": "#ffffff",
+        "text_muted": "#999999",
+    }
+
+    zone_to_cells = defaultdict(list)
+    for cg in sorted(work_df["Cell Group"].dropna().unique(), key=str.lower):
+        z = _nwst_zone_for_cell_map(cg, cell_to_zone_map)
+        if _nwst_exclude_rate_chart_cell(cg, z):
+            continue
+        zone_to_cells[z].append(cg)
+
+    _rate_chart_colors = [
+        "#FF2D95",
+        "#00F0FF",
+        "#FFE14A",
+        "#B388FF",
+        "#00FF94",
+        "#FF6B2C",
+        "#5EB8FF",
+        "#FF4081",
+    ]
+
+    zone_plots = {}
+    for zone in sorted(zone_to_cells.keys(), key=str.lower):
+        cells = sorted(zone_to_cells[zone], key=str.lower)
+        long_rows = []
+        for cg in cells:
+            sub = work_df[work_df["Cell Group"] == cg]
+            mc = members_per_cell.get(str(cg).strip(), 0)
+            if mc == 0 and not sub.empty:
+                mc = sub["Name"].nunique()
+            if mc == 0:
+                continue
+            for dc in date_cols:
+                attended = int(sub[dc].sum()) if dc in sub.columns else 0
+                pct = 100.0 * attended / mc
+                long_rows.append(
+                    {"Saturday": dc, "Cell Group": cg, "Attendance rate %": round(pct, 1)}
+                )
+        plot_df = pd.DataFrame(long_rows)
+        if plot_df.empty:
+            continue
+        ymax = max(105.0, plot_df["Attendance rate %"].max() * 1.08)
+        zone_plots[zone] = (plot_df, ymax)
+
+    if not zone_plots:
+        st.info("No cells to chart after filters.")
+        return
+
+    st.markdown(
+        f"<h3 style='color: {daily_colors['primary']}; font-weight: 800; font-size: 1.15rem;'>"
+        f"Saturday service attendance rate</h3>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<p style='color: #999999; font-family: Inter, sans-serif; font-size: 0.85rem; margin: 0 0 0.75rem 0;'>"
+        f"<b style=\"color: {daily_colors['primary']}\">Filtered view:</b> only members shown in CG Combined "
+        f"after your <b>Cell</b> and <b>Status</b> filters. Each line = one cell group; "
+        f"Y = that Saturday&apos;s check-ins ÷ filtered members in that cell.</p>",
+        unsafe_allow_html=True,
+    )
+
+    zone_tab_names = sorted(zone_plots.keys(), key=str.lower)
+    zone_tabs = st.tabs(zone_tab_names)
+    for i, zone in enumerate(zone_tab_names):
+        plot_df, ymax = zone_plots[zone]
+        with zone_tabs[i]:
+            fig = px.line(
+                plot_df,
+                x="Saturday",
+                y="Attendance rate %",
+                color="Cell Group",
+                markers=True,
+                title="",
+                height=460,
+                color_discrete_sequence=_rate_chart_colors,
+            )
+            fig.update_traces(
+                line=dict(width=3.5),
+                marker=dict(size=5, line=dict(width=1, color="#FFFFFF"), opacity=1),
+                hovertemplate=(
+                    "<b>%{fullData.name}</b><br>%{x}<br><b>%{y:.1f}%</b> of filtered cell showed up<extra></extra>"
+                ),
+            )
+            fig.add_hline(
+                y=50,
+                line_dash="dot",
+                line_color=colors["text_muted"],
+                line_width=1,
+                opacity=0.55,
+                annotation_text="50%",
+                annotation_position="right",
+                annotation_font_color=colors["text_muted"],
+                annotation_font_size=11,
+            )
+            fig.update_layout(
+                plot_bgcolor=colors["background"],
+                paper_bgcolor=colors["card_bg"],
+                font=dict(family="Inter, sans-serif", size=13, color=colors["primary"]),
+                xaxis=dict(
+                    title=dict(text="Saturday service", font=dict(size=12)),
+                    tickfont=dict(color=colors["text"], family="Inter", size=11),
+                    gridcolor=colors["text_muted"],
+                    gridwidth=1,
+                    linecolor=colors["primary"],
+                    linewidth=2,
+                    tickangle=-30,
+                    categoryorder="array",
+                    categoryarray=date_cols,
+                ),
+                yaxis=dict(
+                    title=dict(text="How much of the cell came?", font=dict(size=12)),
+                    tickfont=dict(color=colors["text"], family="Inter", size=11),
+                    ticksuffix="%",
+                    gridcolor=colors["text_muted"],
+                    gridwidth=1,
+                    linecolor=colors["primary"],
+                    linewidth=2,
+                    range=[0, ymax],
+                ),
+                legend=dict(
+                    title=dict(text="Cell groups", font=dict(size=11, color=colors["primary"])),
+                    orientation="h",
+                    yanchor="top",
+                    y=-0.28,
+                    xanchor="center",
+                    x=0.5,
+                    font=dict(size=12, color=colors["text"], family="Inter"),
+                    bgcolor="rgba(0,0,0,0)",
+                    borderwidth=0,
+                ),
+                hoverlabel=dict(
+                    bgcolor=colors["card_bg"],
+                    font=dict(size=13, color=colors["primary"], family="Inter"),
+                    bordercolor=colors["primary"],
+                ),
+                margin=dict(l=55, r=50, t=28, b=150),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption(
+                "Tip: follow one color across the weeks — rightmost dot is the latest Saturday."
+            )
 
 
 def _resolve_cg_name_cell_columns(cg_df):
@@ -1902,6 +2240,9 @@ if current_page == "cg":
                         )
                 else:
                     st.info("Could not load the Attendance sheet for the monthly table.")
+
+                st.markdown("")
+                render_nwst_service_attendance_rate_charts(display_df, daily_colors)
             else:
                 st.info("No cell health data available.")
 
