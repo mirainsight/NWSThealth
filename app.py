@@ -242,6 +242,24 @@ def categorize_member_status(attendance_count, total_possible):
         return "Follow Up"
 
 
+def extract_cell_sheet_status_type(status_val):
+    """Same labels as CELL HEALTH member tiles (Status column prefixes on the sheet)."""
+    if isinstance(status_val, str):
+        if status_val.startswith("Regular:"):
+            return "Regular"
+        if status_val.startswith("Irregular:"):
+            return "Irregular"
+        if status_val.startswith("New"):
+            return "New"
+        if status_val.startswith("Follow Up:"):
+            return "Follow Up"
+        if status_val.startswith("Red:"):
+            return "Red"
+        if status_val.startswith("Graduated:"):
+            return "Graduated"
+    return None
+
+
 def parse_attendance_column_date(cell_val):
     """Parse a single Attendance sheet header cell into a date, or None."""
     if cell_val is None or (isinstance(cell_val, float) and pd.isna(cell_val)):
@@ -273,6 +291,7 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
     then each Month (MMM YY) with Regular / Irregular / Follow Up.
     Months are those present in Attendance headers (cols D+), up to current calendar month (MYT).
     Health aggregates the same dated columns as the month grid (weeks marked 1 = present).
+    Internal column _tile_status stores sheet status for Health cell coloring (same as tiles above).
     Rows are sorted alphabetically by member name (case-insensitive), then by cell for stable ties.
     """
     if display_df is None or display_df.empty or att_df is None or att_df.empty:
@@ -332,6 +351,12 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
             return f"{ns} - {cs}"
         return ns
 
+    status_col = None
+    for col in display_df.columns:
+        if "status" in col.lower():
+            status_col = col
+            break
+
     rows_out = []
     seen = set()
     for _, dr in display_df.iterrows():
@@ -342,13 +367,15 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
             continue
         seen.add(mk)
 
+        tile_status = extract_cell_sheet_status_type(dr.get(status_col)) if status_col else None
+
         att_row = key_to_row.get(mk)
         if att_row is None and disp_cell_col:
             att_row = key_to_row.get(str(nm).strip() if pd.notna(nm) else "")
 
         cl_str = str(cl).strip() if cl is not None and pd.notna(cl) else ""
         nm_str = str(nm).strip() if pd.notna(nm) else ""
-        out = {"Cell": cl_str, "Member": nm_str}
+        out = {"Cell": cl_str, "Member": nm_str, "_tile_status": tile_status}
         if att_row is None:
             for lbl in month_labels:
                 out[lbl] = "—"
@@ -389,7 +416,10 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
     if result.empty:
         return result
     col_order = ["Cell", "Member", "Health"] + month_labels
-    result = result[[c for c in col_order if c in result.columns]]
+    build_cols = [c for c in col_order if c in result.columns]
+    if "_tile_status" in result.columns:
+        build_cols.append("_tile_status")
+    result = result[build_cols]
 
     result["_member_key"] = result["Member"].fillna("").astype(str).str.strip().str.lower()
     result["_cell_key"] = result["Cell"].fillna("").astype(str).str.strip().str.lower()
@@ -402,14 +432,14 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
 
 def _monthly_table_month_columns(df):
     """Columns after Cell / Member / Health (chronological month labels)."""
-    fixed = {"Cell", "Member", "Health"}
+    fixed = {"Cell", "Member", "Health", "_tile_status"}
     return [c for c in df.columns if c not in fixed]
 
 
 def _worst_status_last_three_months(row, month_cols):
     """
-    Roll-up for Health column coloring: worst of the last 3 month columns
-    (Follow Up > Irregular > Regular). Ignores '—' and unknown values.
+    Fallback Health coloring when sheet tile status is missing: worst of the last
+    3 month columns (Follow Up > Irregular > Regular). Ignores '—' and unknown values.
     """
     if not month_cols:
         return None
@@ -429,19 +459,19 @@ def _worst_status_last_three_months(row, month_cols):
     return worst_label
 
 
-def _monthly_member_table_cell(full_name: str) -> str:
-    """Narrow Member column: summary line truncates with CSS ellipsis; click opens full name below."""
-    full = (full_name or "").strip()
+def _monthly_trunc_expand_cell(value: str) -> str:
+    """Narrow Cell/Member columns: summary truncates with CSS ellipsis; click opens full text below."""
+    full = (value or "").strip()
     esc_full = html.escape(full)
     if not full:
-        return '<td class="monthly-member-cell"></td>'
+        return '<td class="monthly-trunc-cell"></td>'
     inner = (
-        f'<details class="monthly-member-details">'
-        f'<summary class="monthly-member-summary" title="Click to show full name">{esc_full}</summary>'
-        f'<span class="monthly-member-full">{esc_full}</span>'
+        f'<details class="monthly-trunc-details">'
+        f'<summary class="monthly-trunc-summary" title="Click to show full text">{esc_full}</summary>'
+        f'<span class="monthly-trunc-full">{esc_full}</span>'
         f"</details>"
     )
-    return f'<td class="monthly-member-cell">{inner}</td>'
+    return f'<td class="monthly-trunc-cell">{inner}</td>'
 
 
 def render_monthly_status_html_table(df):
@@ -454,21 +484,40 @@ def render_monthly_status_html_table(df):
         "Irregular": "monthly-status-irregular",
         "Follow Up": "monthly-status-followup",
     }
+    health_tile_classes = {
+        "Regular": "monthly-status-regular",
+        "Irregular": "monthly-status-irregular",
+        "Follow Up": "monthly-status-followup",
+        "New": "monthly-health-tile-new",
+        "Red": "monthly-health-tile-red",
+        "Graduated": "monthly-health-tile-graduated",
+    }
 
     month_cols = _monthly_table_month_columns(df)
+    display_columns = [c for c in df.columns if c != "_tile_status"]
 
     header_cells = "".join(
-        f"<th>{html.escape(str(c))}</th>" for c in df.columns
+        f"<th>{html.escape(str(c))}</th>" for c in display_columns
     )
     body_rows = []
+    has_tile_col = "_tile_status" in df.columns
     for _, row in df.iterrows():
         cells = []
-        roll_status = _worst_status_last_three_months(row, month_cols)
-        for col in df.columns:
+        eff_health_status = None
+        if has_tile_col:
+            tile_raw = row.get("_tile_status")
+            if tile_raw is not None and not (isinstance(tile_raw, float) and pd.isna(tile_raw)):
+                ts = str(tile_raw).strip()
+                if ts in health_tile_classes:
+                    eff_health_status = ts
+        if eff_health_status is None:
+            eff_health_status = _worst_status_last_three_months(row, month_cols)
+
+        for col in display_columns:
             raw = row[col]
             sval = "" if pd.isna(raw) else str(raw).strip()
             if col == "Health":
-                att_cls = status_span.get(roll_status, "") if roll_status else ""
+                att_cls = health_tile_classes.get(eff_health_status, "")
                 if att_cls:
                     cells.append(
                         f"<td class=\"monthly-attendance-rate-cell\"><span class=\"{att_cls}\">{html.escape(sval)}</span></td>"
@@ -478,14 +527,14 @@ def render_monthly_status_html_table(df):
                         f"<td class=\"monthly-attendance-rate-cell\">{html.escape(sval)}</td>"
                     )
             elif col == "Member":
-                cells.append(_monthly_member_table_cell(sval))
+                cells.append(_monthly_trunc_expand_cell(sval))
             elif col == "Cell":
-                cells.append(f"<td>{html.escape(sval)}</td>")
+                cells.append(_monthly_trunc_expand_cell(sval))
             else:
-                span_cls = status_span.get(sval, "")
-                if span_cls:
+                mo_span = status_span.get(sval, "")
+                if mo_span:
                     cells.append(
-                        f"<td><span class=\"{span_cls}\">{html.escape(sval)}</span></td>"
+                        f"<td><span class=\"{mo_span}\">{html.escape(sval)}</span></td>"
                     )
                 else:
                     cells.append(f"<td>{html.escape(sval)}</td>")
@@ -969,10 +1018,7 @@ st.markdown(f"""
         color: #e8e8e8;
     }}
     .monthly-attendance-table th:nth-child(1),
-    .monthly-attendance-table td:nth-child(1) {{
-        max-width: 6.5rem;
-        width: 8%;
-    }}
+    .monthly-attendance-table td:nth-child(1),
     .monthly-attendance-table th:nth-child(2),
     .monthly-attendance-table td:nth-child(2) {{
         max-width: 7.5rem;
@@ -980,10 +1026,10 @@ st.markdown(f"""
         overflow: hidden;
         vertical-align: top;
     }}
-    .monthly-attendance-table .monthly-member-details {{
+    .monthly-attendance-table .monthly-trunc-details {{
         max-width: 100%;
     }}
-    .monthly-attendance-table .monthly-member-summary {{
+    .monthly-attendance-table .monthly-trunc-summary {{
         cursor: pointer;
         list-style: none;
         overflow: hidden;
@@ -993,10 +1039,10 @@ st.markdown(f"""
         color: #e8e8e8;
         font-weight: 500;
     }}
-    .monthly-attendance-table .monthly-member-summary::-webkit-details-marker {{
+    .monthly-attendance-table .monthly-trunc-summary::-webkit-details-marker {{
         display: none;
     }}
-    .monthly-attendance-table .monthly-member-full {{
+    .monthly-attendance-table .monthly-trunc-full {{
         display: block;
         margin-top: 0.35rem;
         padding-top: 0.35rem;
@@ -1038,6 +1084,19 @@ st.markdown(f"""
     }}
     .monthly-status-followup {{
         color: #f39c12;
+        font-weight: 700;
+    }}
+    /* Health column: sheet / tile statuses (match member-tile border colors) */
+    .monthly-health-tile-new {{
+        color: #3498db;
+        font-weight: 700;
+    }}
+    .monthly-health-tile-red {{
+        color: #e74c3c;
+        font-weight: 700;
+    }}
+    .monthly-health-tile-graduated {{
+        color: #9b59b6;
         font-weight: 700;
     }}
 
@@ -1395,25 +1454,8 @@ if current_page == "cg":
 
                 # Calculate counts by status - extracting the prefix from the descriptive status
                 if status_col:
-                    def extract_status_type(status_val):
-                        """Extract the status type from the descriptive status value"""
-                        if isinstance(status_val, str):
-                            if status_val.startswith("Regular:"):
-                                return "Regular"
-                            elif status_val.startswith("Irregular:"):
-                                return "Irregular"
-                            elif status_val.startswith("New"):
-                                return "New"
-                            elif status_val.startswith("Follow Up:"):
-                                return "Follow Up"
-                            elif status_val.startswith("Red:"):
-                                return "Red"
-                            elif status_val.startswith("Graduated:"):
-                                return "Graduated"
-                        return None
-
-                    # Create a mapped status column
-                    display_df['status_type'] = display_df[status_col].apply(extract_status_type)
+                    # Create a mapped status column (same rules as Monthly Health _tile_status)
+                    display_df['status_type'] = display_df[status_col].apply(extract_cell_sheet_status_type)
 
                     new_count = len(display_df[display_df['status_type'] == "New"])
                     regular_count = len(display_df[display_df['status_type'] == "Regular"])
