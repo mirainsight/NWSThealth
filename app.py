@@ -429,6 +429,21 @@ def _worst_status_last_three_months(row, month_cols):
     return worst_label
 
 
+def _monthly_member_table_cell(full_name: str) -> str:
+    """Narrow Member column: summary line truncates with CSS ellipsis; click opens full name below."""
+    full = (full_name or "").strip()
+    esc_full = html.escape(full)
+    if not full:
+        return '<td class="monthly-member-cell"></td>'
+    inner = (
+        f'<details class="monthly-member-details">'
+        f'<summary class="monthly-member-summary" title="Click to show full name">{esc_full}</summary>'
+        f'<span class="monthly-member-full">{esc_full}</span>'
+        f"</details>"
+    )
+    return f'<td class="monthly-member-cell">{inner}</td>'
+
+
 def render_monthly_status_html_table(df):
     """Render monthly status matrix as HTML with bold status labels (tile-matching colors)."""
     if df is None or df.empty:
@@ -462,7 +477,9 @@ def render_monthly_status_html_table(df):
                     cells.append(
                         f"<td class=\"monthly-attendance-rate-cell\">{html.escape(sval)}</td>"
                     )
-            elif col in ("Cell", "Member"):
+            elif col == "Member":
+                cells.append(_monthly_member_table_cell(sval))
+            elif col == "Cell":
                 cells.append(f"<td>{html.escape(sval)}</td>")
             else:
                 span_cls = status_span.get(sval, "")
@@ -958,10 +975,37 @@ st.markdown(f"""
     }}
     .monthly-attendance-table th:nth-child(2),
     .monthly-attendance-table td:nth-child(2) {{
-        max-width: 11rem;
+        max-width: 7.5rem;
+        width: 1%;
+        overflow: hidden;
+        vertical-align: top;
+    }}
+    .monthly-attendance-table .monthly-member-details {{
+        max-width: 100%;
+    }}
+    .monthly-attendance-table .monthly-member-summary {{
+        cursor: pointer;
+        list-style: none;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        max-width: 100%;
+        color: #e8e8e8;
+        font-weight: 500;
+    }}
+    .monthly-attendance-table .monthly-member-summary::-webkit-details-marker {{
+        display: none;
+    }}
+    .monthly-attendance-table .monthly-member-full {{
+        display: block;
+        margin-top: 0.35rem;
+        padding-top: 0.35rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        color: #ffffff;
+        font-weight: 600;
+        white-space: normal;
+        word-break: break-word;
+        line-height: 1.3;
     }}
     .monthly-attendance-table th:nth-child(3),
     .monthly-attendance-table td:nth-child(3) {{
