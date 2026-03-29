@@ -594,14 +594,13 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors):
 
     st.markdown(
         f"<h3 style='color: {daily_colors['primary']}; font-weight: 800; font-size: 1.15rem;'>"
-        f"Saturday service attendance rate</h3>",
+        f"Cell Attendance</h3>",
         unsafe_allow_html=True,
     )
     st.markdown(
         f"<p style='color: #999999; font-family: Inter, sans-serif; font-size: 0.85rem; margin: 0 0 0.75rem 0;'>"
-        f"<b style=\"color: {daily_colors['primary']}\">In short:</b> "
-        f"This matches your <b>Cell</b> and <b>Status</b> picks. "
-        f"Each line is one cell — a higher dot means more of that cell came that Saturday.</p>",
+        f"Uses your <b>Cell</b> and <b>Status</b> picks. Each line is one cell — each dot is "
+        f"<b>the % of that cell who came</b> that Saturday, out of everyone in that cell on your list.</p>",
         unsafe_allow_html=True,
     )
 
