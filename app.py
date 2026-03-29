@@ -477,6 +477,38 @@ def _nwst_exclude_rate_chart_cell(cg, zone_name):
     return False
 
 
+def _nwst_weekly_contrasting_line_colors(primary_hex, n_series):
+    """Distinct line colors anchored on the hue **opposite** this week's primary (Saturday‑locked accent).
+
+    Multiple series step around the wheel (golden‑ratio hue steps) so lines stay separable on dark UI.
+    """
+    if n_series < 1:
+        n_series = 1
+    ph = str(primary_hex or "#888888").lstrip("#")
+    if len(ph) != 6 or not all(c in "0123456789abcdefABCDEF" for c in ph):
+        ph = "888888"
+    r = int(ph[0:2], 16) / 255.0
+    g = int(ph[2:4], 16) / 255.0
+    b = int(ph[4:6], 16) / 255.0
+    h, light, sat = colorsys.rgb_to_hls(r, g, b)
+    h_comp = (h + 0.5) % 1.0
+    phi = 0.618033988749895
+    out = []
+    for i in range(n_series):
+        hi = (h_comp + i * phi) % 1.0
+        li = min(0.78, max(0.48, 0.52 + (i % 4) * 0.05))
+        si = min(1.0, max(0.72, 0.78 + (1.0 - sat) * 0.15))
+        r2, g2, b2 = colorsys.hls_to_rgb(hi, li, si)
+        out.append(
+            "#{:02x}{:02x}{:02x}".format(
+                int(max(0, min(255, round(r2 * 255)))),
+                int(max(0, min(255, round(g2 * 255)))),
+                int(max(0, min(255, round(b2 * 255)))),
+            )
+        )
+    return out
+
+
 def render_nwst_service_attendance_rate_charts(display_df, daily_colors):
     """Per-zone Saturday attendance rate lines — filtered by current display_df (global Cell / Status)."""
     if display_df is None or display_df.empty:
@@ -533,17 +565,6 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors):
             continue
         zone_to_cells[z].append(cg)
 
-    _rate_chart_colors = [
-        "#FF2D95",
-        "#00F0FF",
-        "#FFE14A",
-        "#B388FF",
-        "#00FF94",
-        "#FF6B2C",
-        "#5EB8FF",
-        "#FF4081",
-    ]
-
     zone_plots = {}
     for zone in sorted(zone_to_cells.keys(), key=str.lower):
         cells = sorted(zone_to_cells[zone], key=str.lower)
@@ -580,7 +601,8 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors):
         f"<p style='color: #999999; font-family: Inter, sans-serif; font-size: 0.85rem; margin: 0 0 0.75rem 0;'>"
         f"<b style=\"color: {daily_colors['primary']}\">Filtered view:</b> only members shown in CG Combined "
         f"after your <b>Cell</b> and <b>Status</b> filters. Each line = one cell group; "
-        f"Y = that Saturday&apos;s check-ins ÷ filtered members in that cell.</p>",
+        f"Y = that Saturday&apos;s check-ins ÷ filtered members in that cell. "
+        f"<i>Line colors</i> contrast with this week&apos;s theme (new hue each Saturday).</p>",
         unsafe_allow_html=True,
     )
 
@@ -589,6 +611,10 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors):
     for i, zone in enumerate(zone_tab_names):
         plot_df, ymax = zone_plots[zone]
         with zone_tabs[i]:
+            n_lines = int(plot_df["Cell Group"].nunique())
+            line_colors = _nwst_weekly_contrasting_line_colors(
+                daily_colors["primary"], max(n_lines, 1)
+            )
             fig = px.line(
                 plot_df,
                 x="Saturday",
@@ -597,7 +623,7 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors):
                 markers=True,
                 title="",
                 height=460,
-                color_discrete_sequence=_rate_chart_colors,
+                color_discrete_sequence=line_colors,
             )
             fig.update_traces(
                 line=dict(width=3.5),
