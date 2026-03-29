@@ -2217,89 +2217,6 @@ if current_page == "cg":
             else:
                 st.info("No cell health data available.")
 
-            # NEWCOMER SECTION
-            st.markdown("")
-            st.markdown(f"<h2 style='color: {daily_colors['primary']}; font-weight: 900;'>👥 NEWCOMER</h2>", unsafe_allow_html=True)
-            st.markdown(f"<div style='height: 3px; background: {daily_colors['primary']}; margin-bottom: 1.5rem;'></div>", unsafe_allow_html=True)
-
-            # Filter for New status
-            status_columns = [col for col in newcomers_df.columns if 'status' in col.lower()]
-            newcomer_df = newcomers_df.copy()
-            if status_columns:
-                newcomer_df = newcomer_df[newcomer_df[status_columns[0]] == "New"]
-
-            # Apply cell filter to newcomers
-            if cell_filter != "All" and cell_columns:
-                newcomer_df = newcomer_df[newcomer_df[cell_columns[0]] == cell_filter]
-
-            if not newcomer_df.empty:
-                # Display count card first
-                newcomer_count = len(newcomer_df)
-
-                # Calculate total members and newcomer percentage
-                if cell_filter != "All" and cell_columns:
-                    total_in_cell = len(display_df[display_df[cell_columns[0]] == cell_filter])
-                else:
-                    total_in_cell = len(display_df)
-
-                newcomer_pct = (newcomer_count / total_in_cell * 100) if total_in_cell > 0 else 0
-
-                # Display two cards in columns
-                kpi_col1, kpi_col2 = st.columns(2)
-
-                with kpi_col1:
-                    st.markdown(f"""
-                    <div class="kpi-card">
-                        <div class="kpi-label">Total Newcomers</div>
-                        <div class="kpi-number">{newcomer_count}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                with kpi_col2:
-                    st.markdown(f"""
-                    <div class="kpi-card">
-                        <div class="kpi-label">Newcomers %</div>
-                        <div class="kpi-number" style="color: {daily_colors['primary']};">{newcomer_pct:.0f}%</div>
-                        <div class="kpi-subtitle">{newcomer_count} of {total_in_cell}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                # Display newcomers list with: Name, Joined Date, Friend/Referrer, Source
-                available_cols = newcomer_df.columns.tolist()
-
-                # Find columns by type - only Name, Notes, and New Since by default
-                default_cols = []
-                for col in available_cols:
-                    col_lower = col.lower()
-                    # Name column - exclude columns with 'last' in them
-                    if (any(x in col_lower for x in ['name', 'member']) and 'last' not in col_lower):
-                        default_cols.append(col)
-                    # Notes column
-                    elif any(x in col_lower for x in ['notes', 'note']):
-                        default_cols.append(col)
-                    # New Since column - must explicitly contain "new since"
-                    elif 'new since' in col_lower:
-                        default_cols.append(col)
-
-                # Column selection widget
-                st.markdown("**Select columns to display:**")
-                selected_cols = st.multiselect(
-                    "Columns",
-                    options=available_cols,
-                    default=default_cols,
-                    key="newcomer_columns",
-                    label_visibility="collapsed"
-                )
-
-                st.markdown("#### Newcomer List")
-
-                if selected_cols:
-                    st.dataframe(newcomer_df[selected_cols], use_container_width=True, hide_index=True)
-                else:
-                    st.warning("Please select at least one column to display.")
-            else:
-                st.info("No newcomers found.")
-
             st.markdown("")
             render_nwst_service_attendance_rate_charts(display_df, daily_colors)
 
@@ -2429,6 +2346,89 @@ if current_page == "cg":
                         )
                 else:
                     st.info("Could not load the Attendance sheet for the monthly table.")
+
+            # NEWCOMER SECTION
+            st.markdown("")
+            st.markdown(f"<h2 style='color: {daily_colors['primary']}; font-weight: 900;'>👥 NEWCOMER</h2>", unsafe_allow_html=True)
+            st.markdown(f"<div style='height: 3px; background: {daily_colors['primary']}; margin-bottom: 1.5rem;'></div>", unsafe_allow_html=True)
+
+            # Filter for New status
+            status_columns = [col for col in newcomers_df.columns if 'status' in col.lower()]
+            newcomer_df = newcomers_df.copy()
+            if status_columns:
+                newcomer_df = newcomer_df[newcomer_df[status_columns[0]] == "New"]
+
+            # Apply cell filter to newcomers
+            if cell_filter != "All" and cell_columns:
+                newcomer_df = newcomer_df[newcomer_df[cell_columns[0]] == cell_filter]
+
+            if not newcomer_df.empty:
+                # Display count card first
+                newcomer_count = len(newcomer_df)
+
+                # Calculate total members and newcomer percentage
+                if cell_filter != "All" and cell_columns:
+                    total_in_cell = len(display_df[display_df[cell_columns[0]] == cell_filter])
+                else:
+                    total_in_cell = len(display_df)
+
+                newcomer_pct = (newcomer_count / total_in_cell * 100) if total_in_cell > 0 else 0
+
+                # Display two cards in columns
+                kpi_col1, kpi_col2 = st.columns(2)
+
+                with kpi_col1:
+                    st.markdown(f"""
+                    <div class="kpi-card">
+                        <div class="kpi-label">Total Newcomers</div>
+                        <div class="kpi-number">{newcomer_count}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                with kpi_col2:
+                    st.markdown(f"""
+                    <div class="kpi-card">
+                        <div class="kpi-label">Newcomers %</div>
+                        <div class="kpi-number" style="color: {daily_colors['primary']};">{newcomer_pct:.0f}%</div>
+                        <div class="kpi-subtitle">{newcomer_count} of {total_in_cell}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # Display newcomers list with: Name, Joined Date, Friend/Referrer, Source
+                available_cols = newcomer_df.columns.tolist()
+
+                # Find columns by type - only Name, Notes, and New Since by default
+                default_cols = []
+                for col in available_cols:
+                    col_lower = col.lower()
+                    # Name column - exclude columns with 'last' in them
+                    if (any(x in col_lower for x in ['name', 'member']) and 'last' not in col_lower):
+                        default_cols.append(col)
+                    # Notes column
+                    elif any(x in col_lower for x in ['notes', 'note']):
+                        default_cols.append(col)
+                    # New Since column - must explicitly contain "new since"
+                    elif 'new since' in col_lower:
+                        default_cols.append(col)
+
+                # Column selection widget
+                st.markdown("**Select columns to display:**")
+                selected_cols = st.multiselect(
+                    "Columns",
+                    options=available_cols,
+                    default=default_cols,
+                    key="newcomer_columns",
+                    label_visibility="collapsed"
+                )
+
+                st.markdown("#### Newcomer List")
+
+                if selected_cols:
+                    st.dataframe(newcomer_df[selected_cols], use_container_width=True, hide_index=True)
+                else:
+                    st.warning("Please select at least one column to display.")
+            else:
+                st.info("No newcomers found.")
 
             # LEADERSHIP SECTION
             st.markdown("")
