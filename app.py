@@ -599,97 +599,101 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors):
     )
     st.markdown(
         f"<p style='color: #999999; font-family: Inter, sans-serif; font-size: 0.85rem; margin: 0 0 0.75rem 0;'>"
-        f"<b style=\"color: {daily_colors['primary']}\">Filtered view:</b> only members shown in CG Combined "
-        f"after your <b>Cell</b> and <b>Status</b> filters. Each line = one cell group; "
-        f"Y = that Saturday&apos;s check-ins ÷ filtered members in that cell. "
-        f"<i>Line colors</i> contrast with this week&apos;s theme (new hue each Saturday).</p>",
+        f"<b style=\"color: {daily_colors['primary']}\">In short:</b> "
+        f"This matches your <b>Cell</b> and <b>Status</b> picks. "
+        f"Each line is one cell — a higher dot means more of that cell came that Saturday.</p>",
         unsafe_allow_html=True,
     )
 
     zone_tab_names = sorted(zone_plots.keys(), key=str.lower)
-    zone_tabs = st.tabs(zone_tab_names)
-    for i, zone in enumerate(zone_tab_names):
+    for zone in zone_tab_names:
         plot_df, ymax = zone_plots[zone]
-        with zone_tabs[i]:
-            n_lines = int(plot_df["Cell Group"].nunique())
-            line_colors = _nwst_weekly_contrasting_line_colors(
-                daily_colors["primary"], max(n_lines, 1)
+        if len(zone_tab_names) > 1:
+            st.markdown(
+                f"<p style='color: {daily_colors['primary']}; font-weight: 700; font-size: 1rem; margin: 0.75rem 0 0.35rem 0;'>"
+                f"{zone}</p>",
+                unsafe_allow_html=True,
             )
-            fig = px.line(
-                plot_df,
-                x="Saturday",
-                y="Attendance rate %",
-                color="Cell Group",
-                markers=True,
-                title="",
-                height=460,
-                color_discrete_sequence=line_colors,
-            )
-            fig.update_traces(
-                line=dict(width=3.5),
-                marker=dict(size=5, line=dict(width=1, color="#FFFFFF"), opacity=1),
-                hovertemplate=(
-                    "<b>%{fullData.name}</b><br>%{x}<br><b>%{y:.1f}%</b> of filtered cell showed up<extra></extra>"
-                ),
-            )
-            fig.add_hline(
-                y=50,
-                line_dash="dot",
-                line_color=colors["text_muted"],
-                line_width=1,
-                opacity=0.55,
-                annotation_text="50%",
-                annotation_position="right",
-                annotation_font_color=colors["text_muted"],
-                annotation_font_size=11,
-            )
-            fig.update_layout(
-                plot_bgcolor=colors["background"],
-                paper_bgcolor=colors["card_bg"],
-                font=dict(family="Inter, sans-serif", size=13, color=colors["primary"]),
-                xaxis=dict(
-                    title=dict(text="Saturday service", font=dict(size=12)),
-                    tickfont=dict(color=colors["text"], family="Inter", size=11),
-                    gridcolor=colors["text_muted"],
-                    gridwidth=1,
-                    linecolor=colors["primary"],
-                    linewidth=2,
-                    tickangle=-30,
-                    categoryorder="array",
-                    categoryarray=date_cols,
-                ),
-                yaxis=dict(
-                    title=dict(text="How much of the cell came?", font=dict(size=12)),
-                    tickfont=dict(color=colors["text"], family="Inter", size=11),
-                    ticksuffix="%",
-                    gridcolor=colors["text_muted"],
-                    gridwidth=1,
-                    linecolor=colors["primary"],
-                    linewidth=2,
-                    range=[0, ymax],
-                ),
-                legend=dict(
-                    title=dict(text="Cell groups", font=dict(size=11, color=colors["primary"])),
-                    orientation="h",
-                    yanchor="top",
-                    y=-0.28,
-                    xanchor="center",
-                    x=0.5,
-                    font=dict(size=12, color=colors["text"], family="Inter"),
-                    bgcolor="rgba(0,0,0,0)",
-                    borderwidth=0,
-                ),
-                hoverlabel=dict(
-                    bgcolor=colors["card_bg"],
-                    font=dict(size=13, color=colors["primary"], family="Inter"),
-                    bordercolor=colors["primary"],
-                ),
-                margin=dict(l=55, r=50, t=28, b=150),
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            st.caption(
-                "Tip: follow one color across the weeks — rightmost dot is the latest Saturday."
-            )
+        n_lines = int(plot_df["Cell Group"].nunique())
+        line_colors = _nwst_weekly_contrasting_line_colors(
+            daily_colors["primary"], max(n_lines, 1)
+        )
+        fig = px.line(
+            plot_df,
+            x="Saturday",
+            y="Attendance rate %",
+            color="Cell Group",
+            markers=True,
+            title="",
+            height=460,
+            color_discrete_sequence=line_colors,
+        )
+        fig.update_traces(
+            line=dict(width=3.5),
+            marker=dict(size=5, line=dict(width=1, color="#FFFFFF"), opacity=1),
+            hovertemplate=(
+                "<b>%{fullData.name}</b><br>%{x}<br><b>%{y:.1f}%</b> of filtered cell showed up<extra></extra>"
+            ),
+        )
+        fig.add_hline(
+            y=50,
+            line_dash="dot",
+            line_color=colors["text_muted"],
+            line_width=1,
+            opacity=0.55,
+            annotation_text="50%",
+            annotation_position="right",
+            annotation_font_color=colors["text_muted"],
+            annotation_font_size=11,
+        )
+        fig.update_layout(
+            plot_bgcolor=colors["background"],
+            paper_bgcolor=colors["card_bg"],
+            font=dict(family="Inter, sans-serif", size=13, color=colors["primary"]),
+            xaxis=dict(
+                title=dict(text="Saturday service", font=dict(size=12)),
+                tickfont=dict(color=colors["text"], family="Inter", size=11),
+                gridcolor=colors["text_muted"],
+                gridwidth=1,
+                linecolor=colors["primary"],
+                linewidth=2,
+                tickangle=-30,
+                categoryorder="array",
+                categoryarray=date_cols,
+            ),
+            yaxis=dict(
+                title=dict(text="How much of the cell came?", font=dict(size=12)),
+                tickfont=dict(color=colors["text"], family="Inter", size=11),
+                ticksuffix="%",
+                gridcolor=colors["text_muted"],
+                gridwidth=1,
+                linecolor=colors["primary"],
+                linewidth=2,
+                range=[0, ymax],
+            ),
+            legend=dict(
+                title=dict(text="Cell groups", font=dict(size=11, color=colors["primary"])),
+                orientation="h",
+                yanchor="top",
+                y=-0.28,
+                xanchor="center",
+                x=0.5,
+                font=dict(size=12, color=colors["text"], family="Inter"),
+                bgcolor="rgba(0,0,0,0)",
+                borderwidth=0,
+            ),
+            hoverlabel=dict(
+                bgcolor=colors["card_bg"],
+                font=dict(size=13, color=colors["primary"], family="Inter"),
+                bordercolor=colors["primary"],
+            ),
+            margin=dict(l=55, r=50, t=28, b=150),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.caption(
+        "Tip: follow one color across the weeks — rightmost dot is the latest Saturday."
+    )
 
 
 def _resolve_cg_name_cell_columns(cg_df):
