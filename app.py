@@ -184,9 +184,97 @@ def load_attendance_and_cg_dataframes():
         return None, None
 
 
+def _nwst_normalize_member_name(s):
+    """Strip, lowercase, collapse spaces (and NBSP) for matching Attendance ↔ CG Combined."""
+    if s is None or (isinstance(s, float) and pd.isna(s)):
+        return ""
+    t = str(s).replace("\u00a0", " ").strip().lower()
+    return " ".join(t.split())
+
+
+def _nwst_detect_name_cell_columns_for_grid(header_row, sample_row):
+    """Return (name_col_idx, sheet_cell_col_idx_or_None). Mirrors wide grids where Name is in B not A."""
+    hr = [str(x).strip() if x is not None else "" for x in (header_row or [])]
+    sr = []
+    if sample_row:
+        for i in range(max(len(header_row or []), len(sample_row))):
+            v = sample_row[i] if i < len(sample_row) else ""
+            sr.append(str(v).strip() if v is not None else "")
+
+    h0s = hr[0].lower() if hr else ""
+    h1s = hr[1].lower() if len(hr) > 1 else ""
+    h2s = hr[2].lower() if len(hr) > 2 else ""
+
+    # Snapshot layout: A="Date" (combined Name - Cell), B="Name", C="Cell", D+= week columns
+    if h0s == "date" and "name" in h1s and ("cell" in h2s or "group" in h2s):
+        return 1, 2
+
+    # Prefer explicit "Name" / "Member" header (any column)
+    for i, c in enumerate(hr):
+        csl = c.lower()
+        if "timestamp" in csl:
+            continue
+        if (
+            ("name" in csl or csl in ("member", "full name"))
+            and "last" not in csl
+            and "leader" not in csl
+        ):
+            if i < len(header_row) and parse_attendance_column_date(header_row[i]) is None:
+                cell_i = None
+                for j in range(i + 1, min(len(hr), i + 5)):
+                    if parse_attendance_column_date(header_row[j]) is not None:
+                        break
+                    jl = hr[j].lower()
+                    if jl and any(k in jl for k in ("cell", "group", "cg")):
+                        cell_i = j
+                        break
+                return i, cell_i
+
+    h0 = h0s
+
+    if h0 and "timestamp" in h0:
+        # A = Timestamp, expect B = Name; C may be Cell before date columns
+        name_i = 1
+        cell_i = None
+        if len(hr) > 2 and hr[2] and parse_attendance_column_date(hr[2]) is None:
+            h2 = hr[2].lower()
+            if any(k in h2 for k in ("cell", "group", "cg", "zone")):
+                cell_i = 2
+        return name_i, cell_i
+
+    h1 = hr[1].lower() if len(hr) > 1 else ""
+    samp0 = sr[0] if sr else ""
+    samp1 = sr[1] if len(sr) > 1 else ""
+
+    # Empty col A but populated B — classic "Name" in column B
+    if not samp0 and samp1:
+        if any(x in h1 for x in ("name", "member", "full")) or (len(hr) > 1 and hr[1] and not hr[0]):
+            cell_i = None
+            if len(hr) > 2 and hr[2] and parse_attendance_column_date(hr[2]) is None:
+                h2 = hr[2].lower()
+                if any(k in h2 for k in ("cell", "group", "cg")):
+                    cell_i = 2
+            return 1, cell_i
+
+    # Header row says "Name" in second column
+    if (
+        h1
+        and any(x in h1 for x in ("name", "member"))
+        and h0 not in ("name", "member", "full name")
+    ):
+        cell_i = None
+        if len(hr) > 2 and hr[2] and parse_attendance_column_date(hr[2]) is None:
+            h2 = hr[2].lower()
+            if any(k in h2 for k in ("cell", "group", "cg")):
+                cell_i = 2
+        return 1, cell_i
+
+    return 0, None
+
+
 @st.cache_data(ttl=300)
 def nwst_get_attendance_grid_for_charts(sheet_id):
-    """Load **Attendance** tab — Saturday columns only; cell from **CG Combined** name lookup."""
+    """Load **Attendance** tab — Saturday columns only; cell from sheet or **CG Combined** name lookup."""
     client = get_google_sheet_client()
     if not client:
         return None, [], "Could not connect to Google Sheets."
@@ -212,10 +300,23 @@ def nwst_get_attendance_grid_for_charts(sheet_id):
 
         cg_df = pd.DataFrame(cg_vals[1:], columns=cg_vals[0])
         cg_name_col, cg_cell_col = _resolve_cg_name_cell_columns(cg_df)
+        if cg_cell_col is None:
+            for col in cg_df.columns:
+                cl = str(col).lower().strip()
+                if ("cell" in cl or "group" in cl) and "leader" not in cl:
+                    cg_cell_col = col
+                    break
 
         header_row = all_values[0]
+        sample_row = all_values[1] if len(all_values) > 1 else []
+        name_col_idx, sheet_cell_col_idx = _nwst_detect_name_cell_columns_for_grid(
+            header_row, sample_row
+        )
+
         saturday_entries = []
-        for col_idx in range(3, len(header_row)):
+        for col_idx in range(len(header_row)):
+            if col_idx in (name_col_idx, sheet_cell_col_idx):
+                continue
             h = header_row[col_idx]
             d = parse_attendance_column_date(h)
             if d is None or d.weekday() != 5:
@@ -224,38 +325,74 @@ def nwst_get_attendance_grid_for_charts(sheet_id):
 
         if not saturday_entries:
             return None, [], (
-                "No Saturday columns found in **Attendance** row 1 (from column D). "
-                "Headers must be parseable dates."
+                "No Saturday columns found in **Attendance** row 1. "
+                "Headers must be parseable dates (same as Monthly Health)."
             )
 
         saturday_entries.sort(key=lambda x: x[0])
-        # Unique chart labels (day + year avoids collisions)
         saturday_dates_short = [d.strftime("%d %b %Y") for d, _ in saturday_entries]
         col_indices = [idx for _, idx in saturday_entries]
 
+        def _nwst_attendance_present(cell_val):
+            if cell_val is None or (isinstance(cell_val, float) and pd.isna(cell_val)):
+                return False
+            s = str(cell_val).strip().lower()
+            if s in ("1", "yes", "y", "true", "x"):
+                return True
+            try:
+                return int(float(str(cell_val).strip())) == 1
+            except (TypeError, ValueError):
+                return False
+
+        def _cell_from_cg(person_name):
+            k = _nwst_normalize_member_name(person_name)
+            if not k or not cg_name_col or not cg_cell_col:
+                return ""
+            cg_match = cg_df[
+                cg_df[cg_name_col]
+                .astype(str)
+                .map(_nwst_normalize_member_name)
+                == k
+            ]
+            if cg_match.empty:
+                return ""
+            return str(cg_match.iloc[0][cg_cell_col]).strip()
+
         data_rows = []
+
         for row in all_values[1:]:
             if not row:
                 continue
-            name = str(row[0]).strip() if row[0] else ""
-            if not name or name.lower() == "name":
+            if name_col_idx >= len(row):
+                continue
+            name = str(row[name_col_idx]).strip() if row[name_col_idx] else ""
+            if name.lower() == "name":
                 continue
 
             cell_group = ""
-            if cg_name_col and cg_cell_col:
-                cg_match = cg_df[
-                    cg_df[cg_name_col].astype(str).str.strip().str.lower() == name.lower()
-                ]
-                if not cg_match.empty:
-                    cell_group = str(cg_match.iloc[0][cg_cell_col]).strip()
+            if sheet_cell_col_idx is not None and sheet_cell_col_idx < len(row):
+                cell_group = str(row[sheet_cell_col_idx]).strip()
+
+            # Column A "Date" often holds "Full Name - Cell"; use if name/cell missing
+            combined_a = str(row[0]).strip() if row and len(row) > 0 and row[0] else ""
+            if (" - " in combined_a) and (not name or not cell_group):
+                left, right = combined_a.split(" - ", 1)
+                if not name:
+                    name = left.strip()
+                if not cell_group:
+                    cell_group = right.strip()
+
+            if not name:
+                continue
+
+            if not cell_group:
+                cell_group = _cell_from_cg(name)
             if not cell_group:
                 continue
 
             attendance = {
                 saturday_dates_short[j]: (
-                    1
-                    if (col_indices[j] < len(row) and str(row[col_indices[j]]).strip() == "1")
-                    else 0
+                    1 if (col_indices[j] < len(row) and _nwst_attendance_present(row[col_indices[j]])) else 0
                 )
                 for j in range(len(col_indices))
             }
@@ -269,7 +406,10 @@ def nwst_get_attendance_grid_for_charts(sheet_id):
             )
 
         if not data_rows:
-            return None, [], "No attendance rows with a cell match in CG Combined."
+            return None, [], (
+                "No attendance rows matched **CG Combined** (or a Cell column on Attendance). "
+                "Check Name is in column A or B, cell on sheet or same spellings as CG Combined."
+            )
 
         df = pd.DataFrame(data_rows)
         df = df.drop_duplicates(subset=["Name - Cell Group"], keep="first")
