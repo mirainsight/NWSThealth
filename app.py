@@ -993,6 +993,56 @@ def _monthly_trunc_expand_cell(value: str) -> str:
     return f'<td class="monthly-trunc-cell">{inner}</td>'
 
 
+def _newcomer_trunc_expand_cell(value: str) -> str:
+    """Long text columns: ellipsis in summary; click to expand (same UX as monthly table)."""
+    full = (value or "").strip()
+    esc_full = html.escape(full)
+    if not full:
+        return '<td class="newcomer-trunc-cell"></td>'
+    inner = (
+        f'<details class="newcomer-trunc-details">'
+        f'<summary class="newcomer-trunc-summary" title="Click to show full text">{esc_full}</summary>'
+        f'<span class="newcomer-trunc-full">{esc_full}</span>'
+        f"</details>"
+    )
+    return f'<td class="newcomer-trunc-cell">{inner}</td>'
+
+
+def _newcomer_column_should_truncate(col_name: str) -> bool:
+    cl = str(col_name).lower()
+    if any(x in cl for x in ["name", "member"]) and "last" not in cl:
+        return True
+    if any(x in cl for x in ["notes", "note"]):
+        return True
+    return False
+
+
+def render_newcomer_list_html_table(df: pd.DataFrame, columns: list) -> str:
+    """HTML table for newcomer list with truncating cells like monthly attendance."""
+    if df is None or df.empty or not columns:
+        return ""
+    header_cells = "".join(f"<th>{html.escape(str(c))}</th>" for c in columns)
+    body_rows = []
+    view = df[columns].copy()
+    for _, row in view.iterrows():
+        cells = []
+        for col in columns:
+            raw = row[col]
+            sval = "" if pd.isna(raw) else str(raw).strip()
+            if _newcomer_column_should_truncate(col):
+                cells.append(_newcomer_trunc_expand_cell(sval))
+            else:
+                cells.append(f"<td>{html.escape(sval)}</td>")
+        body_rows.append("<tr>" + "".join(cells) + "</tr>")
+    return (
+        '<div class="newcomer-list-table-wrap">'
+        '<table class="newcomer-list-table">'
+        f"<thead><tr>{header_cells}</tr></thead>"
+        f"<tbody>{''.join(body_rows)}</tbody>"
+        "</table></div>"
+    )
+
+
 def render_monthly_status_html_table(df):
     """Render monthly status matrix as HTML with bold status labels (tile-matching colors)."""
     if df is None or df.empty:
@@ -1617,6 +1667,68 @@ st.markdown(f"""
     .monthly-health-tile-graduated {{
         color: #9b59b6;
         font-weight: 700;
+    }}
+
+    /* Newcomer list — same expand/ellipsis pattern as monthly Cell/Member columns */
+    .newcomer-list-table-wrap {{
+        overflow-x: auto;
+        margin: 0.35rem 0 1.25rem 0;
+        width: 100%;
+    }}
+    .newcomer-list-table {{
+        width: 100%;
+        border-collapse: collapse;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.9rem;
+    }}
+    .newcomer-list-table th {{
+        text-align: left;
+        padding: 0.65rem 0.75rem;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.12);
+        color: #999;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 0.72rem;
+        white-space: nowrap;
+    }}
+    .newcomer-list-table td {{
+        padding: 0.55rem 0.75rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        color: #e8e8e8;
+        vertical-align: top;
+    }}
+    .newcomer-list-table td.newcomer-trunc-cell {{
+        max-width: 10rem;
+        width: 1%;
+        overflow: hidden;
+    }}
+    .newcomer-list-table .newcomer-trunc-details {{
+        max-width: 100%;
+    }}
+    .newcomer-list-table .newcomer-trunc-summary {{
+        cursor: pointer;
+        list-style: none;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+        color: #e8e8e8;
+        font-weight: 500;
+    }}
+    .newcomer-list-table .newcomer-trunc-summary::-webkit-details-marker {{
+        display: none;
+    }}
+    .newcomer-list-table .newcomer-trunc-full {{
+        display: block;
+        margin-top: 0.35rem;
+        padding-top: 0.35rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        color: #ffffff;
+        font-weight: 600;
+        white-space: normal;
+        word-break: break-word;
+        line-height: 1.3;
     }}
 
 </style>
@@ -2424,7 +2536,10 @@ if current_page == "cg":
                 st.markdown("#### Newcomer List")
 
                 if selected_cols:
-                    st.dataframe(newcomer_df[selected_cols], use_container_width=True, hide_index=True)
+                    st.markdown(
+                        render_newcomer_list_html_table(newcomer_df, selected_cols),
+                        unsafe_allow_html=True,
+                    )
                 else:
                     st.warning("Please select at least one column to display.")
             else:
