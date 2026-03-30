@@ -665,7 +665,7 @@ def _nwst_weekly_contrasting_line_colors(primary_hex, n_series):
     return out
 
 
-_BAR_BG_OPACITY = 0.14
+_BAR_BG_OPACITY = 0.25
 
 
 def _nwst_secondary_y_max(raw_max, multiplier=1.45, pad_ratio=0.08):
