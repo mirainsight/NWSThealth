@@ -509,8 +509,92 @@ def _nwst_weekly_contrasting_line_colors(primary_hex, n_series):
     return out
 
 
-def render_nwst_service_attendance_rate_charts(display_df, daily_colors):
-    """Per-zone Saturday attendance rate lines — filtered by current display_df (global Cell / Status)."""
+def _nwst_make_attendance_rate_fig(plot_df, date_cols, ymax, colors, daily_colors):
+    """Single Plotly figure for Saturday attendance rate (one or more cell lines)."""
+    n_lines = int(plot_df["Cell Group"].nunique())
+    line_colors = _nwst_weekly_contrasting_line_colors(
+        daily_colors["primary"], max(n_lines, 1)
+    )
+    fig = px.line(
+        plot_df,
+        x="Saturday",
+        y="Attendance rate %",
+        color="Cell Group",
+        markers=True,
+        title="",
+        height=460,
+        color_discrete_sequence=line_colors,
+    )
+    fig.update_traces(
+        line=dict(width=3.5),
+        marker=dict(size=5, line=dict(width=1, color="#FFFFFF"), opacity=1),
+        hovertemplate=(
+            "<b>%{fullData.name}</b><br>%{x}<br><b>%{y:.1f}%</b> of filtered cell showed up<extra></extra>"
+        ),
+    )
+    fig.add_hline(
+        y=50,
+        line_dash="dot",
+        line_color=colors["text_muted"],
+        line_width=1,
+        opacity=0.55,
+        annotation_text="50%",
+        annotation_position="right",
+        annotation_font_color=colors["text_muted"],
+        annotation_font_size=11,
+    )
+    fig.update_layout(
+        legend_title_text="",
+        plot_bgcolor=colors["background"],
+        paper_bgcolor=colors["card_bg"],
+        font=dict(family="Inter, sans-serif", size=13, color=colors["primary"]),
+        xaxis=dict(
+            title=dict(text="Saturday service", font=dict(size=12)),
+            tickfont=dict(color=colors["text"], family="Inter", size=11),
+            gridcolor=colors["text_muted"],
+            gridwidth=1,
+            linecolor=colors["primary"],
+            linewidth=2,
+            tickangle=-30,
+            categoryorder="array",
+            categoryarray=date_cols,
+        ),
+        yaxis=dict(
+            title=dict(text="How much of the cell came?", font=dict(size=12)),
+            tickfont=dict(color=colors["text"], family="Inter", size=11),
+            ticksuffix="%",
+            gridcolor=colors["text_muted"],
+            gridwidth=1,
+            linecolor=colors["primary"],
+            linewidth=2,
+            range=[0, ymax],
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.28,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=12, color=colors["text"], family="Inter"),
+            bgcolor="rgba(0,0,0,0)",
+            borderwidth=0,
+        ),
+        hoverlabel=dict(
+            bgcolor=colors["card_bg"],
+            font=dict(size=13, color=colors["primary"], family="Inter"),
+            bordercolor=colors["primary"],
+        ),
+        margin=dict(l=55, r=50, t=28, b=150),
+    )
+    return fig
+
+
+def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_each_cell_when_all=False):
+    """Per-zone Saturday attendance rate lines — filtered by current display_df (global Cell / Status).
+
+    When ``tab_each_cell_when_all`` is True and multiple cell groups are shown, each cell gets its own tab
+    instead of stacking tall charts.
+    """
     if display_df is None or display_df.empty:
         return
 
@@ -604,6 +688,43 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors):
         unsafe_allow_html=True,
     )
 
+    if tab_each_cell_when_all:
+        cell_entries = []
+        for zone in sorted(zone_to_cells.keys(), key=str.lower):
+            for cg in sorted(zone_to_cells[zone], key=str.lower):
+                sub = work_df[work_df["Cell Group"] == cg]
+                mc = members_per_cell.get(str(cg).strip(), 0)
+                if mc == 0 and not sub.empty:
+                    mc = sub["Name"].nunique()
+                if mc == 0:
+                    continue
+                long_rows = []
+                for dc in date_cols:
+                    attended = int(sub[dc].sum()) if dc in sub.columns else 0
+                    pct = 100.0 * attended / mc
+                    long_rows.append(
+                        {"Saturday": dc, "Cell Group": cg, "Attendance rate %": round(pct, 1)}
+                    )
+                plot_df_one = pd.DataFrame(long_rows)
+                if plot_df_one.empty:
+                    continue
+                ymax_one = max(105.0, plot_df_one["Attendance rate %"].max() * 1.08)
+                cell_entries.append((cg, plot_df_one, ymax_one))
+        cell_entries.sort(key=lambda x: str(x[0]).lower())
+        if len(cell_entries) > 1:
+            _tab_labels = [str(cg) for cg, _, _ in cell_entries]
+            _cg_tabs = st.tabs(_tab_labels)
+            for _i, (_, plot_df_one, ymax_one) in enumerate(cell_entries):
+                with _cg_tabs[_i]:
+                    fig = _nwst_make_attendance_rate_fig(
+                        plot_df_one, date_cols, ymax_one, colors, daily_colors
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+            st.caption(
+                "Tip: switch tabs to compare cell groups — rightmost dot is the latest Saturday."
+            )
+            return
+
     zone_tab_names = sorted(zone_plots.keys(), key=str.lower)
     for zone in zone_tab_names:
         plot_df, ymax = zone_plots[zone]
@@ -613,81 +734,7 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors):
                 f"{zone}</p>",
                 unsafe_allow_html=True,
             )
-        n_lines = int(plot_df["Cell Group"].nunique())
-        line_colors = _nwst_weekly_contrasting_line_colors(
-            daily_colors["primary"], max(n_lines, 1)
-        )
-        fig = px.line(
-            plot_df,
-            x="Saturday",
-            y="Attendance rate %",
-            color="Cell Group",
-            markers=True,
-            title="",
-            height=460,
-            color_discrete_sequence=line_colors,
-        )
-        fig.update_traces(
-            line=dict(width=3.5),
-            marker=dict(size=5, line=dict(width=1, color="#FFFFFF"), opacity=1),
-            hovertemplate=(
-                "<b>%{fullData.name}</b><br>%{x}<br><b>%{y:.1f}%</b> of filtered cell showed up<extra></extra>"
-            ),
-        )
-        fig.add_hline(
-            y=50,
-            line_dash="dot",
-            line_color=colors["text_muted"],
-            line_width=1,
-            opacity=0.55,
-            annotation_text="50%",
-            annotation_position="right",
-            annotation_font_color=colors["text_muted"],
-            annotation_font_size=11,
-        )
-        fig.update_layout(
-            legend_title_text="",
-            plot_bgcolor=colors["background"],
-            paper_bgcolor=colors["card_bg"],
-            font=dict(family="Inter, sans-serif", size=13, color=colors["primary"]),
-            xaxis=dict(
-                title=dict(text="Saturday service", font=dict(size=12)),
-                tickfont=dict(color=colors["text"], family="Inter", size=11),
-                gridcolor=colors["text_muted"],
-                gridwidth=1,
-                linecolor=colors["primary"],
-                linewidth=2,
-                tickangle=-30,
-                categoryorder="array",
-                categoryarray=date_cols,
-            ),
-            yaxis=dict(
-                title=dict(text="How much of the cell came?", font=dict(size=12)),
-                tickfont=dict(color=colors["text"], family="Inter", size=11),
-                ticksuffix="%",
-                gridcolor=colors["text_muted"],
-                gridwidth=1,
-                linecolor=colors["primary"],
-                linewidth=2,
-                range=[0, ymax],
-            ),
-            legend=dict(
-                orientation="h",
-                yanchor="top",
-                y=-0.28,
-                xanchor="center",
-                x=0.5,
-                font=dict(size=12, color=colors["text"], family="Inter"),
-                bgcolor="rgba(0,0,0,0)",
-                borderwidth=0,
-            ),
-            hoverlabel=dict(
-                bgcolor=colors["card_bg"],
-                font=dict(size=13, color=colors["primary"], family="Inter"),
-                bordercolor=colors["primary"],
-            ),
-            margin=dict(l=55, r=50, t=28, b=150),
-        )
+        fig = _nwst_make_attendance_rate_fig(plot_df, date_cols, ymax, colors, daily_colors)
         st.plotly_chart(fig, use_container_width=True)
 
     st.caption(
@@ -2330,7 +2377,11 @@ if current_page == "cg":
                 st.info("No cell health data available.")
 
             st.markdown("")
-            render_nwst_service_attendance_rate_charts(display_df, daily_colors)
+            render_nwst_service_attendance_rate_charts(
+                display_df,
+                daily_colors,
+                tab_each_cell_when_all=(cell_filter == "All"),
+            )
 
             if not display_df.empty:
                 st.markdown("")
@@ -2447,10 +2498,34 @@ if current_page == "cg":
                         if _filtered_monthly.empty:
                             st.info("No members match the current filters.")
                         else:
-                            st.markdown(
-                                render_monthly_status_html_table(_filtered_monthly),
-                                unsafe_allow_html=True,
+                            _mwf = _filtered_monthly.copy()
+                            _mwf["_monthly_tab_cell"] = (
+                                _mwf["Cell"]
+                                .fillna("")
+                                .astype(str)
+                                .str.strip()
+                                .replace("", "(no cell)")
                             )
+                            _cells_for_tabs = sorted(
+                                _mwf["_monthly_tab_cell"].unique().tolist(),
+                                key=str.lower,
+                            )
+                            if cell_filter == "All" and len(_cells_for_tabs) > 1:
+                                _mh_cell_tabs = st.tabs(_cells_for_tabs)
+                                for _ti, _cell_name in enumerate(_cells_for_tabs):
+                                    with _mh_cell_tabs[_ti]:
+                                        _sub = _mwf[_mwf["_monthly_tab_cell"] == _cell_name].drop(
+                                            columns=["_monthly_tab_cell"]
+                                        )
+                                        st.markdown(
+                                            render_monthly_status_html_table(_sub),
+                                            unsafe_allow_html=True,
+                                        )
+                            else:
+                                st.markdown(
+                                    render_monthly_status_html_table(_filtered_monthly),
+                                    unsafe_allow_html=True,
+                                )
                     else:
                         st.info(
                             "No monthly breakdown yet. Check that Attendance row 1 from column D has parseable dates "
