@@ -666,6 +666,7 @@ def _nwst_weekly_contrasting_line_colors(primary_hex, n_series):
 
 
 _BAR_BG_OPACITY = 0.25
+NWST_ATTENDED_CELL_MEMBERS_COL = "Attended cell members"
 
 
 def _nwst_secondary_y_max(raw_max, multiplier=1.45, pad_ratio=0.08):
@@ -677,10 +678,10 @@ def _nwst_secondary_y_max(raw_max, multiplier=1.45, pad_ratio=0.08):
 
 
 def _nwst_make_attendance_rate_fig(plot_df, date_cols, ymax, colors, daily_colors):
-    """Saturday attendance rate (lines, foreground) and roster size / denominator (faint bars, background)."""
+    """Saturday attendance rate (lines, foreground) and attended count (faint bars, background)."""
     plot_df = plot_df.copy()
-    if "Denominator" not in plot_df.columns:
-        plot_df["Denominator"] = 0
+    if NWST_ATTENDED_CELL_MEMBERS_COL not in plot_df.columns:
+        plot_df[NWST_ATTENDED_CELL_MEMBERS_COL] = 0
 
     n_lines = int(plot_df["Cell Group"].nunique())
     line_colors = _nwst_weekly_contrasting_line_colors(
@@ -689,8 +690,8 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, ymax, colors, daily_color
     cell_order = sorted(plot_df["Cell Group"].unique(), key=str.lower)
     cg_to_color = {cg: line_colors[i] for i, cg in enumerate(cell_order)}
 
-    max_denom = int(plot_df["Denominator"].max()) if not plot_df.empty else 0
-    y2_max = _nwst_secondary_y_max(max_denom)
+    max_att = int(plot_df[NWST_ATTENDED_CELL_MEMBERS_COL].max()) if not plot_df.empty else 0
+    y2_max = _nwst_secondary_y_max(max_att)
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
@@ -700,12 +701,12 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, ymax, colors, daily_color
         fig.add_trace(
             go.Bar(
                 x=sub["Saturday"],
-                y=sub["Denominator"],
+                y=sub[NWST_ATTENDED_CELL_MEMBERS_COL],
                 name=str(cg),
                 legendgroup=str(cg),
                 marker=dict(color=c, opacity=_BAR_BG_OPACITY, line=dict(width=0)),
                 hovertemplate=(
-                    "<b>%{fullData.name}</b><br>%{x}<br>List size (denominator): %{y}<extra></extra>"
+                    "<b>%{fullData.name}</b><br>%{x}<br>Attended cell members: %{y}<extra></extra>"
                 ),
                 showlegend=False,
             ),
@@ -792,7 +793,7 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, ymax, colors, daily_color
         showgrid=True,
     )
     fig.update_yaxes(
-        title=dict(text="List size (denominator)", font=dict(size=12)),
+        title=dict(text="Attended cell members", font=dict(size=12)),
         tickfont=dict(color=colors["text_muted"], family="Inter", size=11),
         range=[0, y2_max],
         secondary_y=True,
@@ -881,7 +882,7 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
                         "Saturday": dc,
                         "Cell Group": cg,
                         "Attendance rate %": round(pct, 1),
-                        "Denominator": mc,
+                        NWST_ATTENDED_CELL_MEMBERS_COL: attended,
                     }
                 )
         plot_df = pd.DataFrame(long_rows)
@@ -925,7 +926,7 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
                             "Saturday": dc,
                             "Cell Group": cg,
                             "Attendance rate %": round(pct, 1),
-                            "Denominator": mc,
+                            NWST_ATTENDED_CELL_MEMBERS_COL: attended,
                         }
                     )
                 plot_df_one = pd.DataFrame(long_rows)
@@ -944,7 +945,7 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
                     )
                     st.plotly_chart(fig, use_container_width=True)
             st.caption(
-                "Faint bars (right axis): cell list size used as denominator for %. "
+                "Faint bars (right axis): attended cell members (numerator for %). "
                 "Tip: switch tabs to compare cell groups — rightmost dot is the latest Saturday."
             )
             return
@@ -962,7 +963,7 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
         st.plotly_chart(fig, use_container_width=True)
 
     st.caption(
-        "Faint bars (right axis): cell list size (denominator) for the %. "
+        "Faint bars (right axis): attended cell members (numerator for %). "
         "Tip: follow one line color across the weeks — rightmost dot is the latest Saturday."
     )
 
@@ -1222,7 +1223,7 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
 
 
 def nwst_monthly_attendance_aggregate_chart_data(filtered_monthly_df, att_df, cg_df):
-    """Per calendar month: mean attendance % across members with data, and total member-weeks (denominator sum)."""
+    """Per calendar month: mean attendance % across members with data, and count of attended cell members."""
     if filtered_monthly_df is None or filtered_monthly_df.empty or att_df is None or att_df.empty:
         return pd.DataFrame()
 
@@ -1269,7 +1270,7 @@ def nwst_monthly_attendance_aggregate_chart_data(filtered_monthly_df, att_df, cg
         if not cols_m:
             continue
         rates = []
-        denominator_sum = 0
+        attended_cell_members = 0
         for _, mr in filtered_monthly_df.iterrows():
             nm = mr.get("Member")
             cl = mr.get("Cell")
@@ -1288,17 +1289,22 @@ def nwst_monthly_attendance_aggregate_chart_data(filtered_monthly_df, att_df, cg
             if total == 0:
                 continue
             rates.append(100.0 * present / total)
-            denominator_sum += total
+            if present > 0:
+                attended_cell_members += 1
         avg_rate = round(sum(rates) / len(rates), 1) if rates else 0.0
         rows_agg.append(
-            {"Month": lbl, "Avg attendance %": avg_rate, "Denominator": denominator_sum}
+            {
+                "Month": lbl,
+                "Avg attendance %": avg_rate,
+                NWST_ATTENDED_CELL_MEMBERS_COL: attended_cell_members,
+            }
         )
 
     return pd.DataFrame(rows_agg)
 
 
 def nwst_render_monthly_headcount_dual_axis_chart(agg_df, daily_colors):
-    """Line = average attendance % (left). Faint bars = total member-weeks in denominator (right)."""
+    """Line = average attendance % (left). Faint bars = attended cell members count (right)."""
     if agg_df is None or agg_df.empty:
         return
 
@@ -1309,7 +1315,7 @@ def nwst_render_monthly_headcount_dual_axis_chart(agg_df, daily_colors):
         "text": "#ffffff",
         "text_muted": "#999999",
     }
-    max_c = int(agg_df["Denominator"].max()) if not agg_df.empty else 0
+    max_c = int(agg_df[NWST_ATTENDED_CELL_MEMBERS_COL].max()) if not agg_df.empty else 0
     y2_max = _nwst_secondary_y_max(max_c)
     ymax_left = max(105.0, float(agg_df["Avg attendance %"].max()) * 1.08)
 
@@ -1318,10 +1324,10 @@ def nwst_render_monthly_headcount_dual_axis_chart(agg_df, daily_colors):
     fig.add_trace(
         go.Bar(
             x=agg_df["Month"],
-            y=agg_df["Denominator"],
-            name="Denominator (member-weeks)",
+            y=agg_df[NWST_ATTENDED_CELL_MEMBERS_COL],
+            name="Attended cell members",
             marker=dict(color=colors["primary"], opacity=_BAR_BG_OPACITY, line=dict(width=0)),
-            hovertemplate="%{x}<br>Member-weeks (denominator): %{y}<extra></extra>",
+            hovertemplate="%{x}<br>Attended cell members: %{y}<extra></extra>",
             showlegend=True,
             legendgroup="bars",
         ),
@@ -1386,7 +1392,7 @@ def nwst_render_monthly_headcount_dual_axis_chart(agg_df, daily_colors):
         secondary_y=False,
     )
     fig.update_yaxes(
-        title=dict(text="Member-weeks (denominator)", font=dict(size=12)),
+        title=dict(text="Attended cell members", font=dict(size=12)),
         tickfont=dict(color=colors["text_muted"], family="Inter", size=11),
         range=[0, y2_max],
         secondary_y=True,
@@ -3508,8 +3514,8 @@ if current_page == "cg":
                                 st.markdown(
                                     "<p style='color: #999999; font-family: Inter, sans-serif; font-size: 0.82rem; "
                                     "margin: 1.1rem 0 0.4rem 0;'><b>Monthly trend:</b> line = average attendance % among "
-                                    "members with data; faint bars (right axis) = total <b>member-weeks</b> in the "
-                                    "denominator (sum of service weeks counted per member that month).</p>",
+                                    "members with data; faint bars (right axis) = <b>attended cell members</b> (listed "
+                                    "members with at least one attended week that month).</p>",
                                     unsafe_allow_html=True,
                                 )
                                 nwst_render_monthly_headcount_dual_axis_chart(_agg_monthly, daily_colors)
