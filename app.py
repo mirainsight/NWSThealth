@@ -31,6 +31,28 @@ NWST_ATTENDANCE_TAB = "Attendance"
 NWST_OPTIONS_TAB = "Options"
 NWST_ATTENDANCE_ANALYTICS_TAB = "Attendance Analytics"
 
+# Shared by “Attendance rate by cell” (per-zone tabs) and “Zone Attendance Trend” in Analytics
+NWST_ANALYTICS_MULTILINE_PALETTE = [
+    "#FF2D95",
+    "#00F0FF",
+    "#FFE14A",
+    "#B388FF",
+    "#00FF94",
+    "#FF6B2C",
+    "#5EB8FF",
+    "#FF4081",
+]
+
+
+def _nwst_analytics_palette_for_n(n_categories):
+    """Repeat/cycle the analytics multiline palette so every series gets a color."""
+    if n_categories <= 0:
+        return []
+    base = NWST_ANALYTICS_MULTILINE_PALETTE
+    k = len(base)
+    return [base[i % k] for i in range(n_categories)]
+
+
 @st.cache_resource
 def get_redis_client():
     """Initialize Upstash Redis client from Streamlit secrets."""
@@ -1854,17 +1876,6 @@ def render_nwst_analytics_page(colors):
         ymax = max(105.0, plot_df["Attendance rate %"].max() * 1.08)
         zone_plots[zone] = (plot_df, ymax)
 
-    _rate_chart_colors = [
-        "#FF2D95",
-        "#00F0FF",
-        "#FFE14A",
-        "#B388FF",
-        "#00FF94",
-        "#FF6B2C",
-        "#5EB8FF",
-        "#FF4081",
-    ]
-
     if zone_plots:
         zone_tab_names = sorted(zone_plots.keys(), key=str.lower)
         zone_tabs = st.tabs(zone_tab_names)
@@ -1879,7 +1890,7 @@ def render_nwst_analytics_page(colors):
                     markers=True,
                     title="",
                     height=460,
-                    color_discrete_sequence=_rate_chart_colors,
+                    color_discrete_sequence=NWST_ANALYTICS_MULTILINE_PALETTE,
                 )
                 fig_zone_cells.update_traces(
                     line=dict(width=3.5),
@@ -2009,7 +2020,11 @@ def render_nwst_analytics_page(colors):
 
     st.markdown('<div class="analytics-section-title">Zone Attendance Trend</div>', unsafe_allow_html=True)
 
-    zones = df["Zone"].unique()
+    zones = df["Zone"].dropna().unique()
+    zones = [z for z in zones if str(z).strip()]
+    zone_order = sorted(zones, key=lambda z: str(z).lower())
+    zone_palette = _nwst_analytics_palette_for_n(len(zone_order))
+
     zone_trend_data = []
     for date_col in date_cols:
         for zone in zones:
@@ -2025,10 +2040,13 @@ def render_nwst_analytics_page(colors):
         color="Zone",
         markers=True,
         height=400,
+        category_orders={"Zone": zone_order},
+        color_discrete_sequence=zone_palette,
     )
 
     fig_zone_trend.update_traces(
-        marker=dict(size=8),
+        line=dict(width=3.5),
+        marker=dict(size=8, line=dict(width=1, color="#FFFFFF"), opacity=1),
         hovertemplate="<b>%{fullData.name}</b><br>%{x}: %{y}<extra></extra>",
     )
 
