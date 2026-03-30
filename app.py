@@ -55,6 +55,180 @@ def _nwst_analytics_palette_for_n(n_categories):
     return [base[i % k] for i in range(n_categories)]
 
 
+def _nwst_collapsible_section_css(primary_hex: str) -> str:
+    """Style ``st.expander`` summary like CELL HEALTH section headers (green, uppercase, rule)."""
+    c = html.escape(str(primary_hex or "#00ff00"), quote=True)
+    return f"""<style>
+div[data-testid="stExpander"] details {{
+    background: transparent;
+    border: none;
+}}
+div[data-testid="stExpander"] summary {{
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 900 !important;
+    font-size: 1.2rem !important;
+    color: {c} !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.1em !important;
+    list-style: none !important;
+    cursor: pointer;
+    padding: 0.5rem 0.75rem 0.6rem 0.75rem !important;
+    margin: 0 0 0.35rem 0 !important;
+    border-bottom: 3px solid {c} !important;
+    background: #000000 !important;
+}}
+div[data-testid="stExpander"] summary::-webkit-details-marker {{
+    display: none !important;
+}}
+</style>"""
+
+
+def _render_cg_newcomer_section(newcomers_df, display_df, cell_filter, cell_columns, daily_colors):
+    """Content for CG Health > Newcomer collapsible."""
+    status_columns = [col for col in newcomers_df.columns if "status" in col.lower()]
+    newcomer_df = newcomers_df.copy()
+    if status_columns:
+        newcomer_df = newcomer_df[newcomer_df[status_columns[0]] == "New"]
+
+    if cell_filter != "All" and cell_columns:
+        newcomer_df = newcomer_df[newcomer_df[cell_columns[0]] == cell_filter]
+
+    if not newcomer_df.empty:
+        newcomer_count = len(newcomer_df)
+
+        if cell_filter != "All" and cell_columns:
+            total_in_cell = len(display_df[display_df[cell_columns[0]] == cell_filter])
+        else:
+            total_in_cell = len(display_df)
+
+        newcomer_pct = (newcomer_count / total_in_cell * 100) if total_in_cell > 0 else 0
+
+        kpi_col1, kpi_col2 = st.columns(2)
+
+        with kpi_col1:
+            st.markdown(
+                f"""
+            <div class="kpi-card">
+                <div class="kpi-label">Total Newcomers</div>
+                <div class="kpi-number">{newcomer_count}</div>
+            </div>
+            """,
+                unsafe_allow_html=True,
+            )
+
+        with kpi_col2:
+            st.markdown(
+                f"""
+            <div class="kpi-card">
+                <div class="kpi-label">Newcomers %</div>
+                <div class="kpi-number" style="color: {daily_colors['primary']};">{newcomer_pct:.0f}%</div>
+                <div class="kpi-subtitle">{newcomer_count} of {total_in_cell}</div>
+            </div>
+            """,
+                unsafe_allow_html=True,
+            )
+
+        available_cols = newcomer_df.columns.tolist()
+
+        default_cols = []
+        for col in available_cols:
+            col_lower = col.lower()
+            if any(x in col_lower for x in ["name", "member"]) and "last" not in col_lower:
+                default_cols.append(col)
+            elif any(x in col_lower for x in ["notes", "note"]):
+                default_cols.append(col)
+            elif "new since" in col_lower:
+                default_cols.append(col)
+
+        st.markdown("**Select columns to display:**")
+        selected_cols = st.multiselect(
+            "Columns",
+            options=available_cols,
+            default=default_cols,
+            key="newcomer_columns",
+            label_visibility="collapsed",
+        )
+
+        st.markdown("#### Newcomer List")
+
+        if selected_cols:
+            st.markdown(
+                render_newcomer_list_html_table(newcomer_df, selected_cols),
+                unsafe_allow_html=True,
+            )
+        else:
+            st.warning("Please select at least one column to display.")
+    else:
+        st.info("No newcomers found.")
+
+
+def _render_cg_leadership_section(display_df, cell_filter, cell_columns, daily_colors):
+    """Content for CG Health > Leadership collapsible."""
+    if not display_df.empty:
+        leadership_data = get_leadership_by_role(display_df)
+
+        if leadership_data:
+            total_leaders = sum(len(members) for members in leadership_data.values())
+
+            if cell_filter != "All" and cell_columns:
+                total_in_cell = len(display_df[display_df[cell_columns[0]] == cell_filter])
+            else:
+                total_in_cell = len(display_df)
+
+            leader_pct = (total_leaders / total_in_cell * 100) if total_in_cell > 0 else 0
+
+            leader_kpi_col1, leader_kpi_col2 = st.columns(2)
+
+            with leader_kpi_col1:
+                st.markdown(
+                    f"""
+                <div class="kpi-card">
+                    <div class="kpi-label">Total Leaders</div>
+                    <div class="kpi-number">{total_leaders}</div>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            with leader_kpi_col2:
+                st.markdown(
+                    f"""
+                <div class="kpi-card">
+                    <div class="kpi-label">Leaders %</div>
+                    <div class="kpi-number" style="color: {daily_colors['primary']};">{leader_pct:.0f}%</div>
+                    <div class="kpi-subtitle">{total_leaders} of {total_in_cell}</div>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown("")
+
+            for role_name, members in leadership_data.items():
+                st.markdown(
+                    f"<h3 style='color: {daily_colors['primary']}; font-size: 1.1rem;'>{role_name}</h3>",
+                    unsafe_allow_html=True,
+                )
+
+                for leader in members:
+                    since_text = f"Since: {leader['since']}" if leader["since"] else "Since: Not available"
+                    st.markdown(
+                        f"""
+                    <div style='padding: 1rem; background: #1a1a1a; border-left: 3px solid {daily_colors['primary']}; margin-bottom: 0.75rem;'>
+                        <p style='font-weight: 600; margin: 0;'>{leader['name']}</p>
+                        <p style='font-size: 0.85rem; color: #999; margin: 0.25rem 0 0 0;'>{since_text}</p>
+                    </div>
+                    """,
+                        unsafe_allow_html=True,
+                    )
+
+                st.markdown("")
+        else:
+            st.info("No leadership roles assigned yet.")
+    else:
+        st.info("No leadership data available.")
+
+
 @st.cache_resource
 def get_redis_client():
     """Initialize Upstash Redis client from Streamlit secrets."""
@@ -1220,187 +1394,6 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
         .drop(columns=["_member_key", "_cell_key"])
         .reset_index(drop=True)
     )
-
-
-def nwst_monthly_attendance_aggregate_chart_data(filtered_monthly_df, att_df, cg_df):
-    """Per calendar month: mean attendance % across members with data, and count of attended cell members."""
-    if filtered_monthly_df is None or filtered_monthly_df.empty or att_df is None or att_df.empty:
-        return pd.DataFrame()
-
-    cg_name_col, cg_cell_col = _resolve_cg_name_cell_columns(cg_df)
-    att_name_col = att_df.columns[0] if len(att_df.columns) > 0 else None
-    if not att_name_col:
-        return pd.DataFrame()
-
-    month_to_colnames = {}
-    for col_idx, col in enumerate(att_df.columns):
-        if col_idx < 3:
-            continue
-        d = parse_attendance_column_date(col)
-        if d is None:
-            continue
-        ym = (d.year, d.month)
-        month_to_colnames.setdefault(ym, []).append(col)
-
-    myt_today = datetime.now(timezone(timedelta(hours=8))).date()
-    cur_ym = (myt_today.year, myt_today.month)
-    month_keys = sorted(ym for ym in month_to_colnames if ym <= cur_ym)
-    if not month_keys:
-        return pd.DataFrame()
-
-    month_labels = [datetime(y, m, 1).strftime("%b %y") for y, m in month_keys]
-
-    key_to_row = {}
-    for _, row in att_df.iterrows():
-        if pd.isna(row[att_name_col]) or str(row[att_name_col]).strip() == "":
-            continue
-        k = _attendance_row_lookup_key(row, att_name_col, cg_df, cg_name_col, cg_cell_col)
-        key_to_row[k] = row
-
-    def m_row_key(nm, cl):
-        ns = str(nm).strip() if pd.notna(nm) else ""
-        cs = str(cl).strip() if cl is not None and pd.notna(cl) else ""
-        if cs:
-            return f"{ns} - {cs}"
-        return ns
-
-    rows_agg = []
-    for ym, lbl in zip(month_keys, month_labels):
-        cols_m = month_to_colnames.get(ym, [])
-        if not cols_m:
-            continue
-        rates = []
-        attended_cell_members = 0
-        for _, mr in filtered_monthly_df.iterrows():
-            nm = mr.get("Member")
-            cl = mr.get("Cell")
-            mk = m_row_key(nm, cl)
-            att_row = key_to_row.get(mk)
-            if att_row is None and pd.notna(nm):
-                att_row = key_to_row.get(str(nm).strip())
-            if att_row is None:
-                continue
-            present = sum(
-                1
-                for c in cols_m
-                if att_row.get(c) is not None and str(att_row.get(c)).strip() == "1"
-            )
-            total = len(cols_m)
-            if total == 0:
-                continue
-            rates.append(100.0 * present / total)
-            if present > 0:
-                attended_cell_members += 1
-        avg_rate = round(sum(rates) / len(rates), 1) if rates else 0.0
-        rows_agg.append(
-            {
-                "Month": lbl,
-                "Avg attendance %": avg_rate,
-                NWST_ATTENDED_CELL_MEMBERS_COL: attended_cell_members,
-            }
-        )
-
-    return pd.DataFrame(rows_agg)
-
-
-def nwst_render_monthly_headcount_dual_axis_chart(agg_df, daily_colors):
-    """Line = average attendance % (left). Faint bars = attended cell members count (right)."""
-    if agg_df is None or agg_df.empty:
-        return
-
-    colors = {
-        "primary": daily_colors["primary"],
-        "background": daily_colors["background"],
-        "card_bg": "#1a1a1a",
-        "text": "#ffffff",
-        "text_muted": "#999999",
-    }
-    max_c = int(agg_df[NWST_ATTENDED_CELL_MEMBERS_COL].max()) if not agg_df.empty else 0
-    y2_max = _nwst_secondary_y_max(max_c)
-    ymax_left = max(105.0, float(agg_df["Avg attendance %"].max()) * 1.08)
-
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-
-    fig.add_trace(
-        go.Bar(
-            x=agg_df["Month"],
-            y=agg_df[NWST_ATTENDED_CELL_MEMBERS_COL],
-            name="Attended cell members",
-            marker=dict(color=colors["primary"], opacity=_BAR_BG_OPACITY, line=dict(width=0)),
-            hovertemplate="%{x}<br>Attended cell members: %{y}<extra></extra>",
-            showlegend=True,
-            legendgroup="bars",
-        ),
-        secondary_y=True,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=agg_df["Month"],
-            y=agg_df["Avg attendance %"],
-            name="Avg attendance %",
-            mode="lines+markers",
-            line=dict(width=3.5, color=daily_colors["primary"]),
-            marker=dict(size=8, line=dict(width=1, color="#FFFFFF"), color=daily_colors["primary"]),
-            hovertemplate="%{x}<br>Avg: <b>%{y:.1f}%</b><extra></extra>",
-            showlegend=True,
-            legendgroup="line",
-        ),
-        secondary_y=False,
-    )
-
-    fig.update_layout(
-        height=420,
-        plot_bgcolor=colors["background"],
-        paper_bgcolor=colors["card_bg"],
-        font=dict(family="Inter, sans-serif", size=13, color=colors["primary"]),
-        barmode="group",
-        legend=dict(
-            orientation="h",
-            yanchor="top",
-            y=-0.22,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=12, color=colors["text"], family="Inter"),
-            bgcolor="rgba(0,0,0,0)",
-            borderwidth=0,
-        ),
-        hoverlabel=dict(
-            bgcolor=colors["card_bg"],
-            font=dict(size=13, color=colors["primary"], family="Inter"),
-            bordercolor=colors["primary"],
-        ),
-        margin=dict(l=55, r=76, t=28, b=120),
-    )
-    fig.update_xaxes(
-        title=dict(text="Month", font=dict(size=12)),
-        tickfont=dict(color=colors["text"], family="Inter", size=11),
-        gridcolor=colors["text_muted"],
-        gridwidth=1,
-        linecolor=colors["primary"],
-        linewidth=2,
-        tickangle=-30,
-    )
-    fig.update_yaxes(
-        title=dict(text="Avg attendance %", font=dict(size=12)),
-        tickfont=dict(color=colors["text"], family="Inter", size=11),
-        ticksuffix="%",
-        gridcolor=colors["text_muted"],
-        gridwidth=1,
-        linecolor=colors["primary"],
-        linewidth=2,
-        range=[0, ymax_left],
-        secondary_y=False,
-    )
-    fig.update_yaxes(
-        title=dict(text="Attended cell members", font=dict(size=12)),
-        tickfont=dict(color=colors["text_muted"], family="Inter", size=11),
-        range=[0, y2_max],
-        secondary_y=True,
-        showgrid=False,
-        zeroline=False,
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
 
 
 def _monthly_table_month_columns(df):
@@ -3356,13 +3349,6 @@ if current_page == "cg":
             else:
                 st.info("No cell health data available.")
 
-            st.markdown("")
-            render_nwst_service_attendance_rate_charts(
-                display_df,
-                daily_colors,
-                tab_each_cell_when_all=(cell_filter == "All"),
-            )
-
             if not display_df.empty:
                 st.markdown("")
                 st.markdown(
@@ -3506,19 +3492,6 @@ if current_page == "cg":
                                     render_monthly_status_html_table(_filtered_monthly),
                                     unsafe_allow_html=True,
                                 )
-
-                            _agg_monthly = nwst_monthly_attendance_aggregate_chart_data(
-                                _filtered_monthly, att_df_m, cg_df_m
-                            )
-                            if _agg_monthly is not None and not _agg_monthly.empty:
-                                st.markdown(
-                                    "<p style='color: #999999; font-family: Inter, sans-serif; font-size: 0.82rem; "
-                                    "margin: 1.1rem 0 0.4rem 0;'><b>Monthly trend:</b> line = average attendance % among "
-                                    "members with data; faint bars (right axis) = <b>attended cell members</b> (listed "
-                                    "members with at least one attended week that month).</p>",
-                                    unsafe_allow_html=True,
-                                )
-                                nwst_render_monthly_headcount_dual_axis_chart(_agg_monthly, daily_colors)
                     else:
                         st.info(
                             "No monthly breakdown yet. Check that Attendance row 1 from column D has parseable dates "
@@ -3527,152 +3500,20 @@ if current_page == "cg":
                 else:
                     st.info("Could not load the Attendance sheet for the monthly table.")
 
-            # NEWCOMER SECTION
             st.markdown("")
-            st.markdown(f"<h2 style='color: {daily_colors['primary']}; font-weight: 900;'>👥 NEWCOMER</h2>", unsafe_allow_html=True)
-            st.markdown(f"<div style='height: 3px; background: {daily_colors['primary']}; margin-bottom: 1.5rem;'></div>", unsafe_allow_html=True)
+            render_nwst_service_attendance_rate_charts(
+                display_df,
+                daily_colors,
+                tab_each_cell_when_all=(cell_filter == "All"),
+            )
 
-            # Filter for New status
-            status_columns = [col for col in newcomers_df.columns if 'status' in col.lower()]
-            newcomer_df = newcomers_df.copy()
-            if status_columns:
-                newcomer_df = newcomer_df[newcomer_df[status_columns[0]] == "New"]
+            st.markdown(_nwst_collapsible_section_css(daily_colors["primary"]), unsafe_allow_html=True)
 
-            # Apply cell filter to newcomers
-            if cell_filter != "All" and cell_columns:
-                newcomer_df = newcomer_df[newcomer_df[cell_columns[0]] == cell_filter]
+            with st.expander("👥 NEWCOMER", expanded=False):
+                _render_cg_newcomer_section(newcomers_df, display_df, cell_filter, cell_columns, daily_colors)
 
-            if not newcomer_df.empty:
-                # Display count card first
-                newcomer_count = len(newcomer_df)
-
-                # Calculate total members and newcomer percentage
-                if cell_filter != "All" and cell_columns:
-                    total_in_cell = len(display_df[display_df[cell_columns[0]] == cell_filter])
-                else:
-                    total_in_cell = len(display_df)
-
-                newcomer_pct = (newcomer_count / total_in_cell * 100) if total_in_cell > 0 else 0
-
-                # Display two cards in columns
-                kpi_col1, kpi_col2 = st.columns(2)
-
-                with kpi_col1:
-                    st.markdown(f"""
-                    <div class="kpi-card">
-                        <div class="kpi-label">Total Newcomers</div>
-                        <div class="kpi-number">{newcomer_count}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                with kpi_col2:
-                    st.markdown(f"""
-                    <div class="kpi-card">
-                        <div class="kpi-label">Newcomers %</div>
-                        <div class="kpi-number" style="color: {daily_colors['primary']};">{newcomer_pct:.0f}%</div>
-                        <div class="kpi-subtitle">{newcomer_count} of {total_in_cell}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                # Display newcomers list with: Name, Joined Date, Friend/Referrer, Source
-                available_cols = newcomer_df.columns.tolist()
-
-                # Find columns by type - only Name, Notes, and New Since by default
-                default_cols = []
-                for col in available_cols:
-                    col_lower = col.lower()
-                    # Name column - exclude columns with 'last' in them
-                    if (any(x in col_lower for x in ['name', 'member']) and 'last' not in col_lower):
-                        default_cols.append(col)
-                    # Notes column
-                    elif any(x in col_lower for x in ['notes', 'note']):
-                        default_cols.append(col)
-                    # New Since column - must explicitly contain "new since"
-                    elif 'new since' in col_lower:
-                        default_cols.append(col)
-
-                # Column selection widget
-                st.markdown("**Select columns to display:**")
-                selected_cols = st.multiselect(
-                    "Columns",
-                    options=available_cols,
-                    default=default_cols,
-                    key="newcomer_columns",
-                    label_visibility="collapsed"
-                )
-
-                st.markdown("#### Newcomer List")
-
-                if selected_cols:
-                    st.markdown(
-                        render_newcomer_list_html_table(newcomer_df, selected_cols),
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.warning("Please select at least one column to display.")
-            else:
-                st.info("No newcomers found.")
-
-            # LEADERSHIP SECTION
-            st.markdown("")
-            st.markdown(f"<h2 style='color: {daily_colors['primary']}; font-weight: 900;'>👔 LEADERSHIP</h2>", unsafe_allow_html=True)
-            st.markdown(f"<div style='height: 3px; background: {daily_colors['primary']}; margin-bottom: 1.5rem;'></div>", unsafe_allow_html=True)
-
-            if not display_df.empty:
-                # Get leadership members from data
-                leadership_data = get_leadership_by_role(display_df)
-
-                if leadership_data:
-                    # Calculate total leaders and percentage
-                    total_leaders = sum(len(members) for members in leadership_data.values())
-
-                    if cell_filter != "All" and cell_columns:
-                        total_in_cell = len(display_df[display_df[cell_columns[0]] == cell_filter])
-                    else:
-                        total_in_cell = len(display_df)
-
-                    leader_pct = (total_leaders / total_in_cell * 100) if total_in_cell > 0 else 0
-
-                    # Display two cards in columns
-                    leader_kpi_col1, leader_kpi_col2 = st.columns(2)
-
-                    with leader_kpi_col1:
-                        st.markdown(f"""
-                        <div class="kpi-card">
-                            <div class="kpi-label">Total Leaders</div>
-                            <div class="kpi-number">{total_leaders}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                    with leader_kpi_col2:
-                        st.markdown(f"""
-                        <div class="kpi-card">
-                            <div class="kpi-label">Leaders %</div>
-                            <div class="kpi-number" style="color: {daily_colors['primary']};">{leader_pct:.0f}%</div>
-                            <div class="kpi-subtitle">{total_leaders} of {total_in_cell}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                    st.markdown("")
-
-                    # Display leadership organized by role
-                    for role_name, members in leadership_data.items():
-                        st.markdown(f"<h3 style='color: {daily_colors['primary']}; font-size: 1.1rem;'>{role_name}</h3>", unsafe_allow_html=True)
-
-                        for leader in members:
-                            since_text = f"Since: {leader['since']}" if leader['since'] else "Since: Not available"
-                            st.markdown(f"""
-                            <div style='padding: 1rem; background: #1a1a1a; border-left: 3px solid {daily_colors['primary']}; margin-bottom: 0.75rem;'>
-                                <p style='font-weight: 600; margin: 0;'>{leader['name']}</p>
-                                <p style='font-size: 0.85rem; color: #999; margin: 0.25rem 0 0 0;'>{since_text}</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                        st.markdown("")
-                else:
-                    st.info("No leadership roles assigned yet.")
-            else:
-                st.info("No leadership data available.")
+            with st.expander("👔 LEADERSHIP", expanded=False):
+                _render_cg_leadership_section(display_df, cell_filter, cell_columns, daily_colors)
 
             # DETAILED MEMBERS SECTION
             st.markdown("")
