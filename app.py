@@ -12,6 +12,8 @@ import pandas as pd
 import json
 from collections import defaultdict
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from upstash_redis import Redis
 
 # Same spreadsheet as CG Combined / Attendance (NWST Health)
@@ -664,28 +666,58 @@ def _nwst_weekly_contrasting_line_colors(primary_hex, n_series):
 
 
 def _nwst_make_attendance_rate_fig(plot_df, date_cols, ymax, colors, daily_colors):
-    """Single Plotly figure for Saturday attendance rate (one or more cell lines)."""
+    """Saturday attendance rate (lines, left axis) and headcount attended (bars, right axis)."""
+    plot_df = plot_df.copy()
+    if "Attended count" not in plot_df.columns:
+        plot_df["Attended count"] = 0
+
     n_lines = int(plot_df["Cell Group"].nunique())
     line_colors = _nwst_weekly_contrasting_line_colors(
         daily_colors["primary"], max(n_lines, 1)
     )
-    fig = px.line(
-        plot_df,
-        x="Saturday",
-        y="Attendance rate %",
-        color="Cell Group",
-        markers=True,
-        title="",
-        height=460,
-        color_discrete_sequence=line_colors,
-    )
-    fig.update_traces(
-        line=dict(width=3.5),
-        marker=dict(size=5, line=dict(width=1, color="#FFFFFF"), opacity=1),
-        hovertemplate=(
-            "<b>%{fullData.name}</b><br>%{x}<br><b>%{y:.1f}%</b> of filtered cell showed up<extra></extra>"
-        ),
-    )
+    cell_order = sorted(plot_df["Cell Group"].unique(), key=str.lower)
+    cg_to_color = {cg: line_colors[i] for i, cg in enumerate(cell_order)}
+
+    max_count = int(plot_df["Attended count"].max()) if not plot_df.empty else 0
+    y2_max = max(int(max_count * 1.15), 1)
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    for cg in cell_order:
+        sub = plot_df[plot_df["Cell Group"] == cg]
+        c = cg_to_color[cg]
+        fig.add_trace(
+            go.Bar(
+                x=sub["Saturday"],
+                y=sub["Attended count"],
+                name=str(cg),
+                legendgroup=str(cg),
+                marker=dict(color=c, opacity=0.38, line=dict(width=0)),
+                hovertemplate="<b>%{fullData.name}</b><br>%{x}<br>Attended: %{y}<extra></extra>",
+                showlegend=False,
+            ),
+            secondary_y=True,
+        )
+
+    for cg in cell_order:
+        sub = plot_df[plot_df["Cell Group"] == cg]
+        c = cg_to_color[cg]
+        fig.add_trace(
+            go.Scatter(
+                x=sub["Saturday"],
+                y=sub["Attendance rate %"],
+                name=str(cg),
+                legendgroup=str(cg),
+                mode="lines+markers",
+                line=dict(width=3.5, color=c),
+                marker=dict(size=5, line=dict(width=1, color="#FFFFFF"), color=c),
+                hovertemplate=(
+                    "<b>%{fullData.name}</b><br>%{x}<br><b>%{y:.1f}%</b> of filtered cell showed up<extra></extra>"
+                ),
+            ),
+            secondary_y=False,
+        )
+
     fig.add_hline(
         y=50,
         line_dash="dot",
@@ -696,33 +728,16 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, ymax, colors, daily_color
         annotation_position="right",
         annotation_font_color=colors["text_muted"],
         annotation_font_size=11,
+        secondary_y=False,
     )
+
     fig.update_layout(
+        height=460,
         legend_title_text="",
         plot_bgcolor=colors["background"],
         paper_bgcolor=colors["card_bg"],
         font=dict(family="Inter, sans-serif", size=13, color=colors["primary"]),
-        xaxis=dict(
-            title=dict(text="Saturday service", font=dict(size=12)),
-            tickfont=dict(color=colors["text"], family="Inter", size=11),
-            gridcolor=colors["text_muted"],
-            gridwidth=1,
-            linecolor=colors["primary"],
-            linewidth=2,
-            tickangle=-30,
-            categoryorder="array",
-            categoryarray=date_cols,
-        ),
-        yaxis=dict(
-            title=dict(text="How much of the cell came?", font=dict(size=12)),
-            tickfont=dict(color=colors["text"], family="Inter", size=11),
-            ticksuffix="%",
-            gridcolor=colors["text_muted"],
-            gridwidth=1,
-            linecolor=colors["primary"],
-            linewidth=2,
-            range=[0, ymax],
-        ),
+        barmode="group",
         legend=dict(
             orientation="h",
             yanchor="top",
@@ -738,7 +753,38 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, ymax, colors, daily_color
             font=dict(size=13, color=colors["primary"], family="Inter"),
             bordercolor=colors["primary"],
         ),
-        margin=dict(l=55, r=50, t=28, b=150),
+        margin=dict(l=55, r=62, t=28, b=150),
+    )
+    fig.update_xaxes(
+        title=dict(text="Saturday service", font=dict(size=12)),
+        tickfont=dict(color=colors["text"], family="Inter", size=11),
+        gridcolor=colors["text_muted"],
+        gridwidth=1,
+        linecolor=colors["primary"],
+        linewidth=2,
+        tickangle=-30,
+        categoryorder="array",
+        categoryarray=date_cols,
+    )
+    fig.update_yaxes(
+        title=dict(text="How much of the cell came?", font=dict(size=12)),
+        tickfont=dict(color=colors["text"], family="Inter", size=11),
+        ticksuffix="%",
+        gridcolor=colors["text_muted"],
+        gridwidth=1,
+        linecolor=colors["primary"],
+        linewidth=2,
+        range=[0, ymax],
+        secondary_y=False,
+        showgrid=True,
+    )
+    fig.update_yaxes(
+        title=dict(text="Members attended (count)", font=dict(size=12)),
+        tickfont=dict(color=colors["text_muted"], family="Inter", size=11),
+        range=[0, y2_max],
+        secondary_y=True,
+        showgrid=False,
+        zeroline=False,
     )
     return fig
 
@@ -818,7 +864,12 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
                 attended = int(sub[dc].sum()) if dc in sub.columns else 0
                 pct = 100.0 * attended / mc
                 long_rows.append(
-                    {"Saturday": dc, "Cell Group": cg, "Attendance rate %": round(pct, 1)}
+                    {
+                        "Saturday": dc,
+                        "Cell Group": cg,
+                        "Attendance rate %": round(pct, 1),
+                        "Attended count": attended,
+                    }
                 )
         plot_df = pd.DataFrame(long_rows)
         if plot_df.empty:
@@ -857,7 +908,12 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
                     attended = int(sub[dc].sum()) if dc in sub.columns else 0
                     pct = 100.0 * attended / mc
                     long_rows.append(
-                        {"Saturday": dc, "Cell Group": cg, "Attendance rate %": round(pct, 1)}
+                        {
+                            "Saturday": dc,
+                            "Cell Group": cg,
+                            "Attendance rate %": round(pct, 1),
+                            "Attended count": attended,
+                        }
                     )
                 plot_df_one = pd.DataFrame(long_rows)
                 if plot_df_one.empty:
@@ -875,6 +931,7 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
                     )
                     st.plotly_chart(fig, use_container_width=True)
             st.caption(
+                "Bars (right axis): members who checked in that Saturday (numerator). "
                 "Tip: switch tabs to compare cell groups — rightmost dot is the latest Saturday."
             )
             return
@@ -892,7 +949,8 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
         st.plotly_chart(fig, use_container_width=True)
 
     st.caption(
-        "Tip: follow one color across the weeks — rightmost dot is the latest Saturday."
+        "Bars (right axis): members who checked in that Saturday (numerator). "
+        "Tip: follow one line color across the weeks — rightmost dot is the latest Saturday."
     )
 
 
@@ -1148,6 +1206,183 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
         .drop(columns=["_member_key", "_cell_key"])
         .reset_index(drop=True)
     )
+
+
+def nwst_monthly_attendance_aggregate_chart_data(filtered_monthly_df, att_df, cg_df):
+    """Per calendar month: mean attendance % across members with data, and headcount with ≥1 present week."""
+    if filtered_monthly_df is None or filtered_monthly_df.empty or att_df is None or att_df.empty:
+        return pd.DataFrame()
+
+    cg_name_col, cg_cell_col = _resolve_cg_name_cell_columns(cg_df)
+    att_name_col = att_df.columns[0] if len(att_df.columns) > 0 else None
+    if not att_name_col:
+        return pd.DataFrame()
+
+    month_to_colnames = {}
+    for col_idx, col in enumerate(att_df.columns):
+        if col_idx < 3:
+            continue
+        d = parse_attendance_column_date(col)
+        if d is None:
+            continue
+        ym = (d.year, d.month)
+        month_to_colnames.setdefault(ym, []).append(col)
+
+    myt_today = datetime.now(timezone(timedelta(hours=8))).date()
+    cur_ym = (myt_today.year, myt_today.month)
+    month_keys = sorted(ym for ym in month_to_colnames if ym <= cur_ym)
+    if not month_keys:
+        return pd.DataFrame()
+
+    month_labels = [datetime(y, m, 1).strftime("%b %y") for y, m in month_keys]
+
+    key_to_row = {}
+    for _, row in att_df.iterrows():
+        if pd.isna(row[att_name_col]) or str(row[att_name_col]).strip() == "":
+            continue
+        k = _attendance_row_lookup_key(row, att_name_col, cg_df, cg_name_col, cg_cell_col)
+        key_to_row[k] = row
+
+    def m_row_key(nm, cl):
+        ns = str(nm).strip() if pd.notna(nm) else ""
+        cs = str(cl).strip() if cl is not None and pd.notna(cl) else ""
+        if cs:
+            return f"{ns} - {cs}"
+        return ns
+
+    rows_agg = []
+    for ym, lbl in zip(month_keys, month_labels):
+        cols_m = month_to_colnames.get(ym, [])
+        if not cols_m:
+            continue
+        rates = []
+        members_attended = 0
+        for _, mr in filtered_monthly_df.iterrows():
+            nm = mr.get("Member")
+            cl = mr.get("Cell")
+            mk = m_row_key(nm, cl)
+            att_row = key_to_row.get(mk)
+            if att_row is None and pd.notna(nm):
+                att_row = key_to_row.get(str(nm).strip())
+            if att_row is None:
+                continue
+            present = sum(
+                1
+                for c in cols_m
+                if att_row.get(c) is not None and str(att_row.get(c)).strip() == "1"
+            )
+            total = len(cols_m)
+            if total == 0:
+                continue
+            rates.append(100.0 * present / total)
+            if present > 0:
+                members_attended += 1
+        avg_rate = round(sum(rates) / len(rates), 1) if rates else 0.0
+        rows_agg.append(
+            {"Month": lbl, "Avg attendance %": avg_rate, "Members attended": members_attended}
+        )
+
+    return pd.DataFrame(rows_agg)
+
+
+def nwst_render_monthly_headcount_dual_axis_chart(agg_df, daily_colors):
+    """Line = average attendance % (left). Bars = members who attended ≥1 week that month (right)."""
+    if agg_df is None or agg_df.empty:
+        return
+
+    colors = {
+        "primary": daily_colors["primary"],
+        "background": daily_colors["background"],
+        "card_bg": "#1a1a1a",
+        "text": "#ffffff",
+        "text_muted": "#999999",
+    }
+    max_c = int(agg_df["Members attended"].max()) if not agg_df.empty else 0
+    y2_max = max(int(max_c * 1.15), 1)
+    ymax_left = max(105.0, float(agg_df["Avg attendance %"].max()) * 1.08)
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    fig.add_trace(
+        go.Bar(
+            x=agg_df["Month"],
+            y=agg_df["Members attended"],
+            name="Members attended",
+            marker=dict(color=colors["primary"], opacity=0.38, line=dict(width=0)),
+            hovertemplate="%{x}<br>Attended (≥1 week): %{y}<extra></extra>",
+            showlegend=True,
+            legendgroup="bars",
+        ),
+        secondary_y=True,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=agg_df["Month"],
+            y=agg_df["Avg attendance %"],
+            name="Avg attendance %",
+            mode="lines+markers",
+            line=dict(width=3.5, color=daily_colors["primary"]),
+            marker=dict(size=8, line=dict(width=1, color="#FFFFFF"), color=daily_colors["primary"]),
+            hovertemplate="%{x}<br>Avg: <b>%{y:.1f}%</b><extra></extra>",
+            showlegend=True,
+            legendgroup="line",
+        ),
+        secondary_y=False,
+    )
+
+    fig.update_layout(
+        height=420,
+        plot_bgcolor=colors["background"],
+        paper_bgcolor=colors["card_bg"],
+        font=dict(family="Inter, sans-serif", size=13, color=colors["primary"]),
+        barmode="group",
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.22,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=12, color=colors["text"], family="Inter"),
+            bgcolor="rgba(0,0,0,0)",
+            borderwidth=0,
+        ),
+        hoverlabel=dict(
+            bgcolor=colors["card_bg"],
+            font=dict(size=13, color=colors["primary"], family="Inter"),
+            bordercolor=colors["primary"],
+        ),
+        margin=dict(l=55, r=62, t=28, b=120),
+    )
+    fig.update_xaxes(
+        title=dict(text="Month", font=dict(size=12)),
+        tickfont=dict(color=colors["text"], family="Inter", size=11),
+        gridcolor=colors["text_muted"],
+        gridwidth=1,
+        linecolor=colors["primary"],
+        linewidth=2,
+        tickangle=-30,
+    )
+    fig.update_yaxes(
+        title=dict(text="Avg attendance %", font=dict(size=12)),
+        tickfont=dict(color=colors["text"], family="Inter", size=11),
+        ticksuffix="%",
+        gridcolor=colors["text_muted"],
+        gridwidth=1,
+        linecolor=colors["primary"],
+        linewidth=2,
+        range=[0, ymax_left],
+        secondary_y=False,
+    )
+    fig.update_yaxes(
+        title=dict(text="Members attended (count)", font=dict(size=12)),
+        tickfont=dict(color=colors["text_muted"], family="Inter", size=11),
+        range=[0, y2_max],
+        secondary_y=True,
+        showgrid=False,
+        zeroline=False,
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _monthly_table_month_columns(df):
@@ -3253,6 +3488,19 @@ if current_page == "cg":
                                     render_monthly_status_html_table(_filtered_monthly),
                                     unsafe_allow_html=True,
                                 )
+
+                            _agg_monthly = nwst_monthly_attendance_aggregate_chart_data(
+                                _filtered_monthly, att_df_m, cg_df_m
+                            )
+                            if _agg_monthly is not None and not _agg_monthly.empty:
+                                st.markdown(
+                                    "<p style='color: #999999; font-family: Inter, sans-serif; font-size: 0.82rem; "
+                                    "margin: 1.1rem 0 0.4rem 0;'><b>Monthly trend:</b> line = average attendance % among "
+                                    "members with data; bars (right axis) = how many of the listed members attended "
+                                    "at least one service week that month.</p>",
+                                    unsafe_allow_html=True,
+                                )
+                                nwst_render_monthly_headcount_dual_axis_chart(_agg_monthly, daily_colors)
                     else:
                         st.info(
                             "No monthly breakdown yet. Check that Attendance row 1 from column D has parseable dates "
