@@ -270,6 +270,15 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
             return int(agg.get("follow up", 0) or 0)
         return int(agg.get(key, 0) or 0)
 
+    def _hex_rgb(hx: str):
+        h = str(hx).lstrip("#").strip()
+        try:
+            if len(h) >= 6:
+                return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        except ValueError:
+            pass
+        return 128, 128, 128
+
     if display_df.empty:
         st.info("No cell health data available.")
         return
@@ -326,26 +335,27 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
         f"""
 <style>
   .ch-head {{
-    font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
-    font-weight: 900;
-    font-size: 0.85rem;
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 0.82rem;
     color: {prim};
     text-transform: uppercase;
-    letter-spacing: 0.18em;
+    letter-spacing: 0.16em;
     margin: 0 0 0.5rem 0;
-    text-shadow: 0 0 12px rgba({_pr},{_pg},{_pb},0.45);
   }}
   .ch-scroll {{
     width: 100%;
-    max-width: 40rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     padding: 0 0 0.35rem;
     margin: 0;
   }}
   .ch-row {{
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.32rem 0.36rem;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.28rem 0.32rem;
     width: 100%;
+    min-width: 34rem;
     min-height: 0;
   }}
   .ch-card {{
@@ -353,51 +363,52 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
     max-width: 100%;
     height: auto;
     min-height: 0;
-    max-height: 6.75rem;
+    max-height: 6.5rem;
     box-sizing: border-box;
-    border: 1px solid rgba({_pr},{_pg},{_pb},0.55);
-    border-radius: 3px;
-    background: rgba(0,0,0,0.3);
-    box-shadow: 0 0 10px rgba({_pr},{_pg},{_pb},0.06);
-    padding: 0.28rem 0.32rem 0.3rem;
+    border: 1px solid rgba({_pr},{_pg},{_pb},0.35);
+    border-radius: 0;
+    background: #1a1a1a;
+    border-left: 4px solid rgba({_pr},{_pg},{_pb},0.95);
+    padding: 0.26rem 0.3rem 0.28rem;
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
     align-items: flex-start;
     overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
   }}
+  /* KPI-style label / number rhythm (ref.py); glow only via inline on .ch-lbl & .ch-pct */
   .ch-lbl {{
-    font-family: system-ui, 'Segoe UI', sans-serif;
-    font-size: 0.58rem;
-    font-weight: 800;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.62rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin: 0 0 0.12rem 0;
-    line-height: 1.15;
+    letter-spacing: 0.12em;
+    margin: 0 0 0.1rem 0;
+    line-height: 1.2;
   }}
   .ch-pct {{
-    font-family: system-ui, 'Segoe UI', sans-serif;
-    font-size: 1.05rem;
+    font-family: 'Inter', sans-serif;
+    font-size: clamp(0.92rem, 1.9vw, 1.12rem);
     font-weight: 900;
     line-height: 1;
     margin: 0;
     letter-spacing: -0.02em;
-    color: #f5f5f5;
   }}
   .ch-members {{
-    font-family: system-ui, 'Segoe UI', sans-serif;
-    font-size: 0.62rem;
-    font-weight: 700;
-    color: #e8e8e8;
-    margin: 0.14rem 0 0.04rem 0;
-    line-height: 1.2;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.64rem;
+    font-weight: 400;
+    color: #bdbdbd;
+    margin: 0.12rem 0 0.02rem 0;
+    line-height: 1.25;
   }}
   .ch-delta {{
-    font-family: system-ui, 'Segoe UI', sans-serif;
+    font-family: 'Inter', sans-serif;
     font-size: 0.56rem;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    margin: 0.04rem 0 0 0;
+    font-weight: 400;
+    letter-spacing: 0.01em;
+    margin: 0.05rem 0 0 0;
     line-height: 1.2;
     word-break: break-word;
     max-width: 100%;
@@ -449,11 +460,20 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
             )
 
         accent_e = html.escape(accent, quote=True)
+        ar, ag, ab = _hex_rgb(accent)
+        lbl_glow = (
+            f"color:{accent_e};"
+            f"text-shadow:0 0 10px rgba({ar},{ag},{ab},0.72),0 0 20px rgba({ar},{ag},{ab},0.38);"
+        )
+        pct_glow = (
+            f"color:{accent_e} !important;"
+            f"text-shadow:0 0 12px rgba({ar},{ag},{ab},0.78),0 0 26px rgba({ar},{ag},{ab},0.42);"
+        )
         block_html_parts.append(
             f"""
 <div class="ch-card">
-  <div class="ch-lbl" style="color:{accent_e};">{html.escape(label, quote=True)}</div>
-  <p class="ch-pct" style="color:{accent_e} !important;">{pct:.0f}%</p>
+  <div class="ch-lbl" style="{lbl_glow}">{html.escape(label, quote=True)}</div>
+  <p class="ch-pct" style="{pct_glow}">{pct:.0f}%</p>
   <p class="ch-members">{n_live} members</p>
   {delta_html}
 </div>
