@@ -311,91 +311,6 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
     if hist_df is not None and not hist_df.empty:
         curr_agg, prev_agg, _, _ = _nwst_hist_cell_wow_for_scope(hist_df, cell_filter)
 
-    st.markdown(
-        f"""
-<style>
-  .ch-head {{
-    font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
-    font-weight: 900;
-    font-size: 1rem;
-    color: {prim};
-    text-transform: uppercase;
-    letter-spacing: 0.22em;
-    margin: 0 0 0.75rem 0;
-    text-shadow: 0 0 14px rgba({_pr},{_pg},{_pb},0.5);
-  }}
-  .ch-scroll {{
-    width: 100%;
-    padding: 0.1rem 0 0.35rem;
-    margin: 0;
-  }}
-  /* Reference-style pack: 3 across × 2 rows, tight gutters, short landscape tiles */
-  .ch-row {{
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    grid-template-rows: repeat(2, auto);
-    gap: 0.38rem 0.42rem;
-    width: 100%;
-    min-height: 0;
-  }}
-  .ch-card {{
-    aspect-ratio: 4 / 3;
-    min-width: 0;
-    box-sizing: border-box;
-    border: 1px solid rgba({_pr},{_pg},{_pb},0.55);
-    border-radius: 4px;
-    background: rgba(0,0,0,0.25);
-    box-shadow: 0 0 14px rgba({_pr},{_pg},{_pb},0.08);
-    padding: 0.38rem 0.4rem 0.42rem;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: flex-start;
-  }}
-  .ch-lbl {{
-    font-family: system-ui, 'Segoe UI', sans-serif;
-    font-size: clamp(0.52rem, 1.1vw, 0.62rem);
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    margin: 0 0 0.22rem 0;
-    line-height: 1.15;
-  }}
-  .ch-pct {{
-    font-family: system-ui, 'Segoe UI', sans-serif;
-    font-size: clamp(1rem, 2.2vw, 1.35rem);
-    font-weight: 900;
-    line-height: 1;
-    margin: 0;
-    letter-spacing: -0.02em;
-    color: #f5f5f5;
-  }}
-  .ch-members {{
-    font-family: system-ui, 'Segoe UI', sans-serif;
-    font-size: clamp(0.6rem, 1.15vw, 0.72rem);
-    font-weight: 700;
-    color: #f0f0f0;
-    margin: 0.22rem 0 0.08rem 0;
-    line-height: 1.2;
-  }}
-  .ch-delta {{
-    font-family: system-ui, 'Segoe UI', sans-serif;
-    font-size: clamp(0.56rem, 1.05vw, 0.66rem);
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    margin: 0.1rem 0 0 0;
-    line-height: 1.25;
-    word-break: break-word;
-    max-width: 100%;
-  }}
-</style>
-<p class="ch-head">Cell health mix</p>
-<div class="ch-scroll">
-<div class="ch-row">
-""",
-        unsafe_allow_html=True,
-    )
-
     tiles_spec = [
         ("new", "New", "#3498db"),
         ("regular", "Regular", "#2ecc71"),
@@ -405,7 +320,94 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
         ("graduated", "Graduated", "#9b59b6"),
     ]
 
-    block_html_parts = []
+    # One st.markdown only: Streamlit wraps each call in its own block — splitting open/close
+    # divs across two calls breaks the grid and can blow one "card" to full viewport height.
+    block_html_parts = [
+        f"""
+<style>
+  .ch-head {{
+    font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
+    font-weight: 900;
+    font-size: 0.85rem;
+    color: {prim};
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    margin: 0 0 0.5rem 0;
+    text-shadow: 0 0 12px rgba({_pr},{_pg},{_pb},0.45);
+  }}
+  .ch-scroll {{
+    width: 100%;
+    max-width: 40rem;
+    padding: 0 0 0.35rem;
+    margin: 0;
+  }}
+  .ch-row {{
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.32rem 0.36rem;
+    width: 100%;
+    min-height: 0;
+  }}
+  .ch-card {{
+    min-width: 0;
+    max-width: 100%;
+    height: auto;
+    min-height: 0;
+    max-height: 6.75rem;
+    box-sizing: border-box;
+    border: 1px solid rgba({_pr},{_pg},{_pb},0.55);
+    border-radius: 3px;
+    background: rgba(0,0,0,0.3);
+    box-shadow: 0 0 10px rgba({_pr},{_pg},{_pb},0.06);
+    padding: 0.28rem 0.32rem 0.3rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: flex-start;
+    overflow: hidden;
+  }}
+  .ch-lbl {{
+    font-family: system-ui, 'Segoe UI', sans-serif;
+    font-size: 0.58rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin: 0 0 0.12rem 0;
+    line-height: 1.15;
+  }}
+  .ch-pct {{
+    font-family: system-ui, 'Segoe UI', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 900;
+    line-height: 1;
+    margin: 0;
+    letter-spacing: -0.02em;
+    color: #f5f5f5;
+  }}
+  .ch-members {{
+    font-family: system-ui, 'Segoe UI', sans-serif;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: #e8e8e8;
+    margin: 0.14rem 0 0.04rem 0;
+    line-height: 1.2;
+  }}
+  .ch-delta {{
+    font-family: system-ui, 'Segoe UI', sans-serif;
+    font-size: 0.56rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    margin: 0.04rem 0 0 0;
+    line-height: 1.2;
+    word-break: break-word;
+    max-width: 100%;
+  }}
+</style>
+<p class="ch-head">Cell health mix</p>
+<div class="ch-scroll">
+<div class="ch-row">
+"""
+    ]
     for key, label, accent in tiles_spec:
         n_live = live_counts[key]
         pct = (100.0 * n_live / total_members) if total_members > 0 else 0.0
@@ -458,7 +460,8 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
 """
         )
 
-    st.markdown("".join(block_html_parts) + "</div></div>", unsafe_allow_html=True)
+    block_html_parts.append("</div></div>")
+    st.markdown("".join(block_html_parts), unsafe_allow_html=True)
 
 
 def _render_cg_detailed_members_section(display_df, daily_colors):
