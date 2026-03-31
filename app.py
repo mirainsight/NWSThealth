@@ -1,6 +1,6 @@
 import html
 import os
-from urllib.parse import quote, unquote
+from urllib.parse import unquote
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 import colorsys
@@ -232,8 +232,43 @@ def _render_cg_leadership_section(display_df, cell_filter, cell_columns, daily_c
         st.info("No leadership data available.")
 
 
+def _toggle_cg_cell_health_tile(category: str) -> None:
+    """Toggle ``cg_cell_health_tile_filter`` (same category clears); used by tile buttons (no full page reload)."""
+    cur = st.session_state.get("cg_cell_health_tile_filter")
+    if cur == category:
+        st.session_state.cg_cell_health_tile_filter = None
+    else:
+        st.session_state.cg_cell_health_tile_filter = category
+
+
+def _nwst_cell_health_tile_face_css(_ch_tiles: list, active: str | None) -> str:
+    """Per-tile button colors via ``st.container(key=nwst_ch_face_{i})`` → ``.st-key-nwst_ch_face_{i}``."""
+    base = (
+        "border:2px solid #000!important;border-radius:6px!important;"
+        "box-shadow:4px 4px 0 #000!important;font-weight:800!important;"
+        "letter-spacing:0.04em!important;min-height:4.5rem!important;"
+        "transform:none!important;"
+    )
+    parts: list[str] = []
+    for idx, (_cat, _pct, _cnt, bg, tc) in enumerate(_ch_tiles):
+        sel = f".st-key-nwst_ch_face_{idx} .stButton > button"
+        extra = (
+            "outline:3px solid #fff!important;outline-offset:2px!important;"
+            "box-shadow:5px 5px 0 #000!important;"
+            if _cat == active
+            else ""
+        )
+        parts.append(
+            f"{sel}{{{base}background:{bg}!important;color:{tc}!important;{extra}}}\n"
+            f"{sel}:hover{{filter:brightness(1.05)!important;background:{bg}!important;color:{tc}!important;"
+            "border-color:#000!important;transform:none!important;}}\n"
+        )
+    return "".join(parts)
+
+
 def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "cg"):
-    """Cell Health tiles: full-color HTML links set ``cg_cell_health_tile_filter`` via ``?nwst_ch=`` (avoids Streamlit button CSS)."""
+    """Cell Health tiles: colored ``st.button`` widgets toggle ``cg_cell_health_tile_filter`` (soft rerun only)."""
+    _ = page_slug  # retained for callers; URL ``?nwst_ch=`` still handled by ``_consume_nwst_cell_health_query_param``
     if not display_df.empty:
         status_columns = [col for col in display_df.columns if "status" in col.lower()]
         status_col = status_columns[0] if status_columns else None
@@ -269,35 +304,41 @@ def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "c
         red_pct = (red_count / total_members * 100) if total_members > 0 else 0
         graduated_pct = (graduated_count / total_members * 100) if total_members > 0 else 0
 
-        st.caption(
-            "Tap a colored tile to filter **Individual Attendance** below. Tap the **same** tile again to clear that filter, or use **Clear All** in that section."
-        )
         _ch_active = st.session_state.get("cg_cell_health_tile_filter")
-        # Solid brights (flat fills) + dark text only where needed for contrast.
+        # Original status palette (pre-neon): same hexes as the old gradient tops + text colors.
         _ch_tiles = [
-            ("New", new_pct, new_count, "#2979FF", "#FFFFFF"),
-            ("Regular", regular_pct, regular_count, "#00E676", "#0D1F14"),
-            ("Irregular", irregular_pct, irregular_count, "#FF9100", "#1A0D00"),
-            ("Follow Up", follow_up_pct, follow_up_count, "#FFEA00", "#141400"),
-            ("Red", red_pct, red_count, "#FF1744", "#FFFFFF"),
-            ("Graduated", graduated_pct, graduated_count, "#D500F9", "#FFFFFF"),
+            ("New", new_pct, new_count, "#5dade2", "#ffffff"),
+            ("Regular", regular_pct, regular_count, "#58d68d", "#ffffff"),
+            ("Irregular", irregular_pct, irregular_count, "#f0b27a", "#ffffff"),
+            ("Follow Up", follow_up_pct, follow_up_count, "#f7dc6f", "#1a1a1a"),
+            ("Red", red_pct, red_count, "#f1948a", "#ffffff"),
+            ("Graduated", graduated_pct, graduated_count, "#af7ac5", "#ffffff"),
         ]
-        for _row in range(2):
-            _cols = st.columns(3)
-            for _ci, _col in enumerate(_cols):
-                _cat, _pct, _cnt, _bg, _tc = _ch_tiles[_row * 3 + _ci]
-                with _col:
-                    st.html(
-                        _nwst_cell_health_tile_html(
-                            page_slug,
-                            _cat,
-                            _pct,
-                            _cnt,
-                            _bg,
-                            _tc,
-                            _ch_active == _cat,
-                        )
-                    )
+
+        with st.container(key="nwst_cell_health_tiles"):
+            st.markdown(
+                f"<style>{_nwst_cell_health_tile_face_css(_ch_tiles, _ch_active)}</style>",
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                "Tap a colored tile to filter **Individual Attendance** below. Tap the **same** tile again to clear that filter, or use **Clear All** in that section."
+            )
+            for _row in range(2):
+                _cols = st.columns(3)
+                for _ci, _col in enumerate(_cols):
+                    _idx = _row * 3 + _ci
+                    _cat, _pct, _cnt, _bg, _tc = _ch_tiles[_idx]
+                    _lbl = f"**{_cat.upper()}** · {_pct:.0f}%\n_{_cnt} members_"
+                    with _col:
+                        with st.container(key=f"nwst_ch_face_{_idx}"):
+                            st.button(
+                                _lbl,
+                                key=f"nwst_ch_btn_{_idx}",
+                                on_click=_toggle_cg_cell_health_tile,
+                                args=(_cat,),
+                                use_container_width=True,
+                                type="secondary",
+                            )
 
         if _ch_active:
             st.markdown(
@@ -1380,43 +1421,6 @@ def _consume_nwst_cell_health_query_param() -> None:
     except Exception:
         pass
     st.rerun()
-
-
-def _nwst_cell_health_tile_href(page_slug: str, category: str) -> str:
-    return f"?page={quote(str(page_slug), safe='')}&nwst_ch={quote(category, safe='')}"
-
-
-def _nwst_cell_health_tile_html(
-    page_slug: str,
-    category: str,
-    pct: float,
-    count: int,
-    bg: str,
-    text_color: str,
-    active: bool,
-) -> str:
-    """Single flat tile (``st.html``): solid fill, squarish, minimal markup so Streamlit won’t fragment it."""
-    href = _nwst_cell_health_tile_href(page_slug, category)
-    cat_esc = html.escape(category.upper())
-    # Neo-brutalist: flat color, tight radius, hard offset shadow (no glossy gradient).
-    if active:
-        extra = "outline:3px solid #ffffff;outline-offset:2px;"
-        shadow = "box-shadow:5px 5px 0 #000000;"
-    else:
-        extra = ""
-        shadow = "box-shadow:4px 4px 0 #000000;"
-    return (
-        f'<a href="{html.escape(href)}" style="display:block;box-sizing:border-box;'
-        f"text-decoration:none;color:{text_color};background:{bg};"
-        "border:2px solid #000000;border-radius:6px;padding:14px 10px;margin-bottom:10px;"
-        "text-align:center;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;"
-        "font-weight:800;font-size:0.95rem;line-height:1.25;letter-spacing:0.04em;"
-        f"{shadow}{extra}\">"
-        f'<span style="font-size:1.05rem">{cat_esc}</span>'
-        f' <span style="opacity:0.92">· {pct:.0f}%</span><br/>'
-        f'<span style="display:inline-block;margin-top:6px;font-size:0.78rem;font-weight:600;'
-        f"opacity:0.92;letter-spacing:0.02em\">{count} members</span></a>"
-    )
 
 
 def extract_cell_sheet_status_type(status_val):
