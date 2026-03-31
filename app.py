@@ -271,12 +271,6 @@ def _render_cg_cell_health_section(display_df, daily_colors):
         st.caption(
             "Click a category to filter **Individual Attendance** below. Click the same category again to clear the status filter."
         )
-        # Anchor for CSS: full-color tiles + mobile layout (scoped to Cell Health rows only).
-        st.markdown(
-            '<div id="nwst-ch-tile-anchor" aria-hidden="true"></div>',
-            unsafe_allow_html=True,
-        )
-
         _ch_active = st.session_state.get("cg_cell_health_tile_filter")
         _ch_tiles = [
             ("New", "🔵", new_pct, new_count, "btn_new"),
@@ -2913,50 +2907,64 @@ st.markdown(f"""
     }}
 
     /*
-     * Cell Health tiles — full-color fills (scoped via #nwst-ch-tile-anchor + sibling rows).
-     * Row1: New, Regular, Irregular | Row2: Follow Up, Red, Graduated
+     * Cell Health tiles — Streamlit widget ids end with user key (e.g. -btn_new).
+     * These selectors beat the global .stButton > button transparent background.
      */
-    /* Row 1: New, Regular, Irregular */
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] [data-testid="column"]:nth-child(1) button {{
+    [id$="-btn_new"] .stButton > button,
+    button[id$="-btn_new"] {{
         background: linear-gradient(155deg, #5dade2 0%, #2e86c1 45%, #1a5276 100%) !important;
         color: #ffffff !important;
         border: none !important;
         box-shadow: 0 4px 16px rgba(26, 82, 114, 0.45) !important;
     }}
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] [data-testid="column"]:nth-child(2) button {{
+    [id$="-btn_regular"] .stButton > button,
+    button[id$="-btn_regular"] {{
         background: linear-gradient(155deg, #58d68d 0%, #28b463 45%, #196f3d 100%) !important;
         color: #ffffff !important;
         border: none !important;
         box-shadow: 0 4px 16px rgba(25, 111, 61, 0.45) !important;
     }}
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] [data-testid="column"]:nth-child(3) button {{
+    [id$="-btn_irregular"] .stButton > button,
+    button[id$="-btn_irregular"] {{
         background: linear-gradient(155deg, #f0b27a 0%, #e67e22 45%, #a04000 100%) !important;
         color: #ffffff !important;
         border: none !important;
         box-shadow: 0 4px 16px rgba(160, 64, 0, 0.4) !important;
     }}
-    /* Row 2: Follow Up, Red, Graduated */
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"]:nth-child(1) button {{
+    [id$="-btn_follow_up"] .stButton > button,
+    button[id$="-btn_follow_up"] {{
         background: linear-gradient(155deg, #f7dc6f 0%, #f39c12 40%, #b9770e 100%) !important;
         color: #1a1a1a !important;
         border: none !important;
         box-shadow: 0 4px 16px rgba(185, 119, 14, 0.4) !important;
     }}
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"]:nth-child(2) button {{
+    [id$="-btn_red"] .stButton > button,
+    button[id$="-btn_red"] {{
         background: linear-gradient(155deg, #f1948a 0%, #e74c3c 40%, #922b21 100%) !important;
         color: #ffffff !important;
         border: none !important;
         box-shadow: 0 4px 16px rgba(146, 43, 33, 0.45) !important;
     }}
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"]:nth-child(3) button {{
+    [id$="-btn_graduated"] .stButton > button,
+    button[id$="-btn_graduated"] {{
         background: linear-gradient(155deg, #af7ac5 0%, #9b59b6 40%, #6c3483 100%) !important;
         color: #ffffff !important;
         border: none !important;
         box-shadow: 0 4px 16px rgba(108, 52, 131, 0.45) !important;
     }}
 
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] [data-testid="column"] button,
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"] button {{
+    [id$="-btn_new"] .stButton > button,
+    [id$="-btn_regular"] .stButton > button,
+    [id$="-btn_irregular"] .stButton > button,
+    [id$="-btn_follow_up"] .stButton > button,
+    [id$="-btn_red"] .stButton > button,
+    [id$="-btn_graduated"] .stButton > button,
+    button[id$="-btn_new"],
+    button[id$="-btn_regular"],
+    button[id$="-btn_irregular"],
+    button[id$="-btn_follow_up"],
+    button[id$="-btn_red"],
+    button[id$="-btn_graduated"] {{
         min-height: 5.15rem !important;
         width: 100% !important;
         max-width: none !important;
@@ -2971,43 +2979,92 @@ st.markdown(f"""
         line-height: 1.3 !important;
         transition: filter 0.15s ease, box-shadow 0.15s ease !important;
     }}
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] [data-testid="column"] button:hover,
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"] button:hover {{
+    [id$="-btn_new"] .stButton > button:hover,
+    [id$="-btn_regular"] .stButton > button:hover,
+    [id$="-btn_irregular"] .stButton > button:hover,
+    [id$="-btn_follow_up"] .stButton > button:hover,
+    [id$="-btn_red"] .stButton > button:hover,
+    [id$="-btn_graduated"] .stButton > button:hover,
+    button[id$="-btn_new"]:hover,
+    button[id$="-btn_regular"]:hover,
+    button[id$="-btn_irregular"]:hover,
+    button[id$="-btn_follow_up"]:hover,
+    button[id$="-btn_red"]:hover,
+    button[id$="-btn_graduated"]:hover {{
         filter: brightness(1.07) !important;
     }}
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] [data-testid="column"] button p,
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"] button p {{
+
+    [id$="-btn_new"] .stButton > button p,
+    [id$="-btn_regular"] .stButton > button p,
+    [id$="-btn_irregular"] .stButton > button p,
+    [id$="-btn_red"] .stButton > button p,
+    [id$="-btn_graduated"] .stButton > button p,
+    button[id$="-btn_new"] p,
+    button[id$="-btn_regular"] p,
+    button[id$="-btn_irregular"] p,
+    button[id$="-btn_red"] p,
+    button[id$="-btn_graduated"] p {{
         text-align: center !important;
         font-size: 0.86rem !important;
         margin: 0 !important;
         color: #ffffff !important;
     }}
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] [data-testid="column"] button strong,
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"] button strong {{
+    [id$="-btn_follow_up"] .stButton > button p,
+    button[id$="-btn_follow_up"] p {{
+        color: #1a1a1a !important;
+    }}
+    [id$="-btn_new"] .stButton > button strong,
+    [id$="-btn_regular"] .stButton > button strong,
+    [id$="-btn_irregular"] .stButton > button strong,
+    [id$="-btn_red"] .stButton > button strong,
+    [id$="-btn_graduated"] .stButton > button strong,
+    button[id$="-btn_new"] strong,
+    button[id$="-btn_regular"] strong,
+    button[id$="-btn_irregular"] strong,
+    button[id$="-btn_red"] strong,
+    button[id$="-btn_graduated"] strong {{
         color: #ffffff !important;
         font-weight: 800 !important;
     }}
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] [data-testid="column"] button em,
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"] button em {{
+    [id$="-btn_follow_up"] .stButton > button strong,
+    button[id$="-btn_follow_up"] strong {{
+        color: #1a1a1a !important;
+    }}
+    [id$="-btn_new"] .stButton > button em,
+    [id$="-btn_regular"] .stButton > button em,
+    [id$="-btn_irregular"] .stButton > button em,
+    [id$="-btn_red"] .stButton > button em,
+    [id$="-btn_graduated"] .stButton > button em,
+    button[id$="-btn_new"] em,
+    button[id$="-btn_regular"] em,
+    button[id$="-btn_irregular"] em,
+    button[id$="-btn_red"] em,
+    button[id$="-btn_graduated"] em {{
         color: rgba(255, 255, 255, 0.88) !important;
         font-style: italic !important;
     }}
-    /* Follow Up (amber tile): dark text for contrast */
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"]:nth-child(1) button p,
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"]:nth-child(1) button strong,
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"]:nth-child(1) button em {{
-        color: #1a1a1a !important;
-    }}
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"]:nth-child(1) button em {{
+    [id$="-btn_follow_up"] .stButton > button em,
+    button[id$="-btn_follow_up"] em {{
         color: rgba(26, 26, 26, 0.82) !important;
     }}
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] [data-testid="column"] button[data-testid="baseButton-primary"],
-    [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"] button[data-testid="baseButton-primary"] {{
+
+    [id$="-btn_new"] .stButton > button[data-testid="stBaseButton-primary"],
+    [id$="-btn_regular"] .stButton > button[data-testid="stBaseButton-primary"],
+    [id$="-btn_irregular"] .stButton > button[data-testid="stBaseButton-primary"],
+    [id$="-btn_follow_up"] .stButton > button[data-testid="stBaseButton-primary"],
+    [id$="-btn_red"] .stButton > button[data-testid="stBaseButton-primary"],
+    [id$="-btn_graduated"] .stButton > button[data-testid="stBaseButton-primary"],
+    button[id$="-btn_new"][data-testid="stBaseButton-primary"],
+    button[id$="-btn_regular"][data-testid="stBaseButton-primary"],
+    button[id$="-btn_irregular"][data-testid="stBaseButton-primary"],
+    button[id$="-btn_follow_up"][data-testid="stBaseButton-primary"],
+    button[id$="-btn_red"][data-testid="stBaseButton-primary"],
+    button[id$="-btn_graduated"][data-testid="stBaseButton-primary"] {{
         box-shadow: 0 0 0 2px #ffffff, 0 0 0 5px rgba(0, 0, 0, 0.25), 0 6px 22px rgba(0, 0, 0, 0.38) !important;
         filter: brightness(1.05) !important;
     }}
 
-    /* Mobile: wrap rows into 2 columns so tiles are wider, less “thin strip” */
+    /* Mobile: wrap Cell Health rows (2 tiles per row) */
     @media (max-width: 768px) {{
         .kpi-card {{
             padding: 1rem 1.25rem;
@@ -3027,25 +3084,43 @@ st.markdown(f"""
             font-size: 0.7rem;
             margin-top: 0.25rem;
         }}
-        [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] [data-baseweb="flex-grid"],
-        [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-baseweb="flex-grid"] {{
+        [data-baseweb="flex-grid"]:has([id$="-btn_new"]),
+        [data-baseweb="flex-grid"]:has([id$="-btn_follow_up"]) {{
             flex-wrap: wrap !important;
             gap: 0.5rem !important;
             row-gap: 0.55rem !important;
         }}
-        [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] [data-testid="column"],
-        [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"] {{
+        [data-testid="column"]:has([id$="-btn_new"]),
+        [data-testid="column"]:has([id$="-btn_regular"]),
+        [data-testid="column"]:has([id$="-btn_irregular"]),
+        [data-testid="column"]:has([id$="-btn_follow_up"]),
+        [data-testid="column"]:has([id$="-btn_red"]),
+        [data-testid="column"]:has([id$="-btn_graduated"]) {{
             flex: 1 1 calc(50% - 0.35rem) !important;
             max-width: calc(50% - 0.35rem) !important;
             min-width: calc(50% - 0.35rem) !important;
             width: calc(50% - 0.35rem) !important;
         }}
-        [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] [data-testid="column"] button,
-        [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"] button {{
+        [id$="-btn_new"] .stButton > button,
+        [id$="-btn_regular"] .stButton > button,
+        [id$="-btn_irregular"] .stButton > button,
+        [id$="-btn_follow_up"] .stButton > button,
+        [id$="-btn_red"] .stButton > button,
+        [id$="-btn_graduated"] .stButton > button,
+        button[id$="-btn_new"],
+        button[id$="-btn_regular"],
+        button[id$="-btn_irregular"],
+        button[id$="-btn_follow_up"],
+        button[id$="-btn_red"],
+        button[id$="-btn_graduated"] {{
             min-height: 4.85rem !important;
         }}
-        [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] [data-testid="column"] button p,
-        [data-testid="element-container"]:has(#nwst-ch-tile-anchor) + [data-testid="element-container"] + [data-testid="element-container"] [data-testid="column"] button p {{
+        [id$="-btn_new"] .stButton > button p,
+        [id$="-btn_regular"] .stButton > button p,
+        [id$="-btn_irregular"] .stButton > button p,
+        [id$="-btn_follow_up"] .stButton > button p,
+        [id$="-btn_red"] .stButton > button p,
+        [id$="-btn_graduated"] .stButton > button p {{
             font-size: 0.8rem !important;
         }}
     }}
