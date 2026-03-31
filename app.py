@@ -370,14 +370,14 @@ def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "c
                     with _col:
                         with st.container(key=f"nwst_ch_face_{_idx}"):
                             st.markdown(_tile_html, unsafe_allow_html=True)
+                            # No ``label_visibility`` — older Streamlit rejects it on ``st.button``; face is markup + CSS ``opacity:0`` overlay.
                             st.button(
-                                f"Filter {_cat}",
+                                " ",
                                 key=f"nwst_ch_btn_{_idx}",
                                 on_click=_toggle_cg_cell_health_tile,
                                 args=(_cat,),
                                 use_container_width=True,
                                 type="secondary",
-                                label_visibility="collapsed",
                                 help=f"Tap to filter Individual Attendance by «{_cat}» (tap again to clear).",
                             )
 
