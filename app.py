@@ -32,6 +32,7 @@ NWST_KEY_VALUES_TAB = "Key Values"
 NWST_ATTENDANCE_TAB = "Attendance"
 NWST_OPTIONS_TAB = "Options"
 NWST_ATTENDANCE_ANALYTICS_TAB = "Attendance Analytics"
+NWST_STATUS_HISTORICAL_TAB = "Status Historical"
 
 # Shared by “Attendance rate by cell” (per-zone tabs) and “Zone Attendance Trend” in Analytics
 NWST_ANALYTICS_MULTILINE_PALETTE = [
@@ -774,6 +775,25 @@ def load_attendance_and_cg_dataframes():
         return att_df, cg_df
     except Exception:
         return None, None
+
+
+@st.cache_data(ttl=300)
+def load_status_historical_dataframe():
+    """Load **Status Historical** tab (monthly Regular/Irregular/Follow Up per member)."""
+    client = get_google_sheet_client()
+    if not client:
+        return None
+    try:
+        spreadsheet = client.open_by_key(NWST_HEALTH_SHEET_ID)
+        ws = spreadsheet.worksheet(NWST_STATUS_HISTORICAL_TAB)
+        data = ws.get_all_values()
+        if not data or len(data) < 2:
+            return None
+        return pd.DataFrame(data[1:], columns=data[0])
+    except WorksheetNotFound:
+        return None
+    except Exception:
+        return None
 
 
 def _nwst_normalize_member_name(s):
@@ -1617,6 +1637,118 @@ def parse_attendance_column_date(cell_val):
     return None
 
 
+def parse_status_historical_month_header(cell_val):
+    """Parse **Status Historical** column headers like 'Jan 2026' into (year, month), or None."""
+    if cell_val is None or (isinstance(cell_val, float) and pd.isna(cell_val)):
+        return None
+    s = str(cell_val).strip()
+    if not s:
+        return None
+    for fmt in ("%b %Y", "%B %Y", "%b %y", "%B %y", "%Y-%m", "%m/%Y", "%Y/%m"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            return (dt.year, dt.month)
+        except ValueError:
+            continue
+    return None
+
+
+def _resolve_status_historical_name_columns(df):
+    """Detect composite (Name - Cell), Name, and Cell columns on Status Historical."""
+    composite_col = name_col = cell_col = None
+    for c in df.columns:
+        s = str(c).strip()
+        sl = s.lower().replace("-", " ")
+        if composite_col is None and "name" in sl and ("cell" in sl or "group" in sl):
+            composite_col = c
+        elif name_col is None and sl in ("name", "member", "member name", "full name"):
+            name_col = c
+        elif cell_col is None and sl in ("cell name", "cell", "group", "cg", "cell/group"):
+            cell_col = c
+        elif cell_col is None and "cell" in sl and "name" not in sl:
+            cell_col = c
+    if name_col is None and len(df.columns) >= 2:
+        c0 = df.columns[0]
+        if composite_col == c0 and len(df.columns) >= 3:
+            name_col, cell_col = df.columns[1], df.columns[2]
+        elif composite_col is None:
+            name_col = df.columns[0]
+            if len(df.columns) >= 2:
+                cell_col = df.columns[1]
+    return composite_col, name_col, cell_col
+
+
+def _status_historical_row_norm_keys(row, composite_col, name_col, cell_col):
+    keys = []
+    if composite_col is not None and composite_col in row.index:
+        v = row.get(composite_col)
+        if v is not None and not (isinstance(v, float) and pd.isna(v)) and str(v).strip():
+            keys.append(_nwst_normalize_member_name(str(v).strip()))
+    n, c = "", ""
+    if name_col is not None and name_col in row.index:
+        nv = row.get(name_col)
+        if nv is not None and not (isinstance(nv, float) and pd.isna(nv)):
+            n = str(nv).strip()
+    if cell_col is not None and cell_col in row.index:
+        cv = row.get(cell_col)
+        if cv is not None and not (isinstance(cv, float) and pd.isna(cv)):
+            c = str(cv).strip()
+    if n and c:
+        keys.append(_nwst_normalize_member_name(f"{n} - {c}"))
+    if n:
+        keys.append(_nwst_normalize_member_name(n))
+    return keys
+
+
+def _parse_status_historical_for_monthly(status_hist_df):
+    """Build lookup and month axis from Status Historical, or None if unusable."""
+    if status_hist_df is None or status_hist_df.empty:
+        return None
+    composite_col, name_col, cell_col = _resolve_status_historical_name_columns(status_hist_df)
+    if not name_col:
+        return None
+    myt_today = datetime.now(timezone(timedelta(hours=8))).date()
+    cur_ym = (myt_today.year, myt_today.month)
+    ym_to_col = {}
+    for col in status_hist_df.columns:
+        ym = parse_status_historical_month_header(col)
+        if ym and ym <= cur_ym and ym not in ym_to_col:
+            ym_to_col[ym] = col
+    if not ym_to_col:
+        return None
+    month_keys = sorted(ym_to_col.keys())
+    lookup = {}
+    for _, row in status_hist_df.iterrows():
+        for nk in _status_historical_row_norm_keys(row, composite_col, name_col, cell_col):
+            if nk:
+                lookup[nk] = row
+    return {
+        "lookup": lookup,
+        "month_keys": month_keys,
+        "ym_to_col": ym_to_col,
+    }
+
+
+def _month_status_from_historical_cell(raw):
+    """Map sheet cell text to Regular / Irregular / Follow Up for the matrix."""
+    if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    st = extract_cell_sheet_status_type(s)
+    if st:
+        return st
+    sl = s.lower()
+    if sl.startswith("regular"):
+        return "Regular"
+    if sl.startswith("irregular"):
+        return "Irregular"
+    if sl.startswith("follow"):
+        return "Follow Up"
+    return None
+
+
 def _attendance_row_lookup_key(row, att_name_col, cg_df, cg_name_col, cg_cell_col):
     att_name_str = str(row[att_name_col]).strip()
     cell_info = ""
@@ -1627,50 +1759,67 @@ def _attendance_row_lookup_key(row, att_name_col, cg_df, cg_name_col, cg_cell_co
     return att_name_str + cell_info
 
 
-def build_monthly_member_status_table(display_df, att_df, cg_df):
+def build_monthly_member_status_table(display_df, att_df, cg_df, status_hist_df=None):
     """
     One row per member in display_df; columns Cell, Member, Health (present/total + rate %),
     then each Month (MMM YY) with Regular / Irregular / Follow Up.
-    Months are those present in Attendance headers (cols D+), up to current calendar month (MYT).
-    Health aggregates the same dated columns as the month grid (weeks marked 1 = present).
-    Internal column _tile_status stores sheet status for Health cell coloring (same as tiles above).
+    Month labels come from **Status Historical** when that tab loads; missing cells show "—".
+    If Status Historical is missing or has no month columns, months are derived from **Attendance**
+    (75% rule on weekly 1/0 columns).
+    Health always uses **Attendance** weekly marks aggregated over the same month keys shown.
+    Internal column _tile_status stores CG Combined status for Health cell coloring.
     Rows are sorted alphabetically by member name (case-insensitive), then by cell for stable ties.
     """
-    if display_df is None or display_df.empty or att_df is None or att_df.empty:
+    if display_df is None or display_df.empty:
         return pd.DataFrame()
 
-    cg_name_col, cg_cell_col = _resolve_cg_name_cell_columns(cg_df)
-    att_name_col = att_df.columns[0] if len(att_df.columns) > 0 else None
-    if not att_name_col:
-        return pd.DataFrame()
+    hist_ctx = _parse_status_historical_for_monthly(status_hist_df)
+
+    att_df = att_df if att_df is not None else pd.DataFrame()
+    cg_df = cg_df if cg_df is not None else pd.DataFrame()
 
     month_to_colnames = {}
-    for col_idx, col in enumerate(att_df.columns):
-        if col_idx < 3:
-            continue
-        d = parse_attendance_column_date(col)
-        if d is None:
-            continue
-        ym = (d.year, d.month)
-        month_to_colnames.setdefault(ym, []).append(col)
+    att_name_col = None
+    if not att_df.empty:
+        att_name_col = att_df.columns[0] if len(att_df.columns) > 0 else None
+        if att_name_col:
+            for col_idx, col in enumerate(att_df.columns):
+                if col_idx < 3:
+                    continue
+                d = parse_attendance_column_date(col)
+                if d is None:
+                    continue
+                ym = (d.year, d.month)
+                month_to_colnames.setdefault(ym, []).append(col)
 
     myt_today = datetime.now(timezone(timedelta(hours=8))).date()
     cur_ym = (myt_today.year, myt_today.month)
-    month_keys = sorted(ym for ym in month_to_colnames if ym <= cur_ym)
+
+    if hist_ctx:
+        month_keys = [ym for ym in hist_ctx["month_keys"] if ym <= cur_ym]
+        ym_to_hist_col = hist_ctx["ym_to_col"]
+        hist_lookup = hist_ctx["lookup"]
+    else:
+        month_keys = sorted(ym for ym in month_to_colnames if ym <= cur_ym)
+        ym_to_hist_col = {}
+        hist_lookup = {}
+
     if not month_keys:
         return pd.DataFrame()
 
-    month_labels = []
-    for y, m in month_keys:
-        month_labels.append(datetime(y, m, 1).strftime("%b %y"))
+    month_labels = [datetime(y, m, 1).strftime("%b %y") for y, m in month_keys]
 
-    # Map stats key -> attendance row (first match)
+    cg_name_col, cg_cell_col = (None, None)
+    if not cg_df.empty:
+        cg_name_col, cg_cell_col = _resolve_cg_name_cell_columns(cg_df)
+
     key_to_row = {}
-    for _, row in att_df.iterrows():
-        if pd.isna(row[att_name_col]) or str(row[att_name_col]).strip() == '':
-            continue
-        k = _attendance_row_lookup_key(row, att_name_col, cg_df, cg_name_col, cg_cell_col)
-        key_to_row[k] = row
+    if att_name_col and not att_df.empty and cg_name_col is not None:
+        for _, row in att_df.iterrows():
+            if pd.isna(row[att_name_col]) or str(row[att_name_col]).strip() == '':
+                continue
+            k = _attendance_row_lookup_key(row, att_name_col, cg_df, cg_name_col, cg_cell_col)
+            key_to_row[k] = row
 
     disp_name_col = None
     disp_cell_col = None
@@ -1718,40 +1867,56 @@ def build_monthly_member_status_table(display_df, att_df, cg_df):
         cl_str = str(cl).strip() if cl is not None and pd.notna(cl) else ""
         nm_str = str(nm).strip() if pd.notna(nm) else ""
         out = {"Cell": cl_str, "Member": nm_str, "_tile_status": tile_status}
-        if att_row is None:
-            for lbl in month_labels:
-                out[lbl] = "—"
-            out["Health"] = "—"
-            rows_out.append(out)
-            continue
+
+        nk_full = _nwst_normalize_member_name(mk)
+        nk_name = _nwst_normalize_member_name(nm_str)
+        hist_row = None
+        if hist_lookup:
+            if nk_full in hist_lookup:
+                hist_row = hist_lookup[nk_full]
+            elif nk_name in hist_lookup:
+                hist_row = hist_lookup[nk_name]
+
+        use_hist_months = hist_ctx is not None and hist_row is not None
 
         for ym, lbl in zip(month_keys, month_labels):
-            cols_m = month_to_colnames.get(ym, [])
-            present = 0
-            total = 0
-            for c in cols_m:
-                total += 1
-                v = att_row.get(c)
-                if v is not None and str(v).strip() == '1':
-                    present += 1
-            if total == 0:
-                out[lbl] = "—"
+            if use_hist_months:
+                hcol = ym_to_hist_col.get(ym)
+                raw = hist_row.get(hcol) if hcol is not None else None
+                mapped = _month_status_from_historical_cell(raw)
+                out[lbl] = mapped if mapped else "—"
+            elif att_row is not None:
+                cols_m = month_to_colnames.get(ym, [])
+                present = 0
+                total = 0
+                for c in cols_m:
+                    total += 1
+                    v = att_row.get(c)
+                    if v is not None and str(v).strip() == '1':
+                        present += 1
+                if total == 0:
+                    out[lbl] = "—"
+                else:
+                    out[lbl] = categorize_member_status(present, total)
             else:
-                out[lbl] = categorize_member_status(present, total)
+                out[lbl] = "—"
 
-        all_present = 0
-        all_total = 0
-        for ym in month_keys:
-            for c in month_to_colnames.get(ym, []):
-                all_total += 1
-                v = att_row.get(c)
-                if v is not None and str(v).strip() == '1':
-                    all_present += 1
-        if all_total == 0:
-            out["Health"] = "—"
+        if att_row is not None:
+            all_present = 0
+            all_total = 0
+            for ym in month_keys:
+                for c in month_to_colnames.get(ym, []):
+                    all_total += 1
+                    v = att_row.get(c)
+                    if v is not None and str(v).strip() == '1':
+                        all_present += 1
+            if all_total == 0:
+                out["Health"] = "—"
+            else:
+                att_pct = round(100.0 * all_present / all_total, 1)
+                out["Health"] = f"{all_present}/{all_total} ({att_pct}%)"
         else:
-            att_pct = round(100.0 * all_present / all_total, 1)
-            out["Health"] = f"{all_present}/{all_total} ({att_pct}%)"
+            out["Health"] = "—"
         rows_out.append(out)
 
     result = pd.DataFrame(rows_out)
@@ -2149,14 +2314,19 @@ def _render_nwst_analytics_individual_attendance(colors, cell_to_zone_map):
         return
 
     att_df_m, cg_df_m = load_attendance_and_cg_dataframes()
-    if att_df_m is None or cg_df_m is None:
-        st.info("Could not load NWST **Attendance** / **CG Combined** for this table.")
+    if cg_df_m is None:
+        st.info("Could not load NWST **CG Combined** for this table.")
         return
-
-    monthly_status_df = build_monthly_member_status_table(display_df, att_df_m, cg_df_m)
+    if att_df_m is None:
+        att_df_m = pd.DataFrame()
+    status_hist_df = load_status_historical_dataframe()
+    monthly_status_df = build_monthly_member_status_table(
+        display_df, att_df_m, cg_df_m, status_hist_df
+    )
     if monthly_status_df is None or monthly_status_df.empty:
         st.info(
-            "No individual attendance breakdown yet. Check NWST **Attendance** row 1 from column D for parseable dates."
+            "No individual attendance breakdown yet. Check NWST **Status Historical** month headers "
+            "(e.g. Jan 2026) or **Attendance** row 1 from column D for parseable dates."
         )
         return
 
@@ -2527,7 +2697,8 @@ def render_nwst_analytics_page(colors):
         st.markdown(
             f"<p style='color: {colors['text_muted']}; font-family: Inter, sans-serif; "
             f"font-size: 0.85rem; margin: 0 0 1rem 0;'>"
-            f"Same monthly matrix as CG Health, from NWST <b>Attendance</b> + <b>CG Combined</b>. "
+            f"Monthly status columns mirror NWST <b>Status Historical</b>; "
+            f"<b>Health</b> uses <b>Attendance</b> + <b>CG Combined</b>. "
             f"Each tab is one <b>zone</b> (Key Values on this spreadsheet).</p>",
             unsafe_allow_html=True,
         )
@@ -3542,8 +3713,13 @@ if current_page == "cg":
                 if not display_df.empty:
                     st.markdown("")
                     att_df_m, cg_df_m = load_attendance_and_cg_dataframes()
-                    if att_df_m is not None and cg_df_m is not None:
-                        monthly_status_df = build_monthly_member_status_table(display_df, att_df_m, cg_df_m)
+                    if cg_df_m is not None:
+                        if att_df_m is None:
+                            att_df_m = pd.DataFrame()
+                        status_hist_df = load_status_historical_dataframe()
+                        monthly_status_df = build_monthly_member_status_table(
+                            display_df, att_df_m, cg_df_m, status_hist_df
+                        )
                         if monthly_status_df is not None and not monthly_status_df.empty:
                             st.markdown(
                                 f"""
