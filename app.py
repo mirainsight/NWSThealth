@@ -272,98 +272,45 @@ def _render_cg_cell_health_section(display_df, daily_colors):
             "Click a category to filter **Individual Attendance** below. Click the same category again to clear the status filter."
         )
 
-        col1, col2, col3 = st.columns(3)
+        _ch_active = st.session_state.get("cg_cell_health_tile_filter")
+        # Streamlit button labels support Markdown; :color[] for accent (no HTML).
+        _ch_streamlit_colors = {
+            "New": "blue",
+            "Regular": "green",
+            "Irregular": "orange",
+            "Follow Up": "gray",
+            "Red": "red",
+            "Graduated": "violet",
+        }
+        _ch_tiles = [
+            ("New", "🔵", new_pct, new_count, "btn_new"),
+            ("Regular", "🟢", regular_pct, regular_count, "btn_regular"),
+            ("Irregular", "🟠", irregular_pct, irregular_count, "btn_irregular"),
+            ("Follow Up", "🟡", follow_up_pct, follow_up_count, "btn_follow_up"),
+            ("Red", "🔴", red_pct, red_count, "btn_red"),
+            ("Graduated", "⭐", graduated_pct, graduated_count, "btn_graduated"),
+        ]
+        for _row in range(2):
+            _cols = st.columns(3)
+            for _ci, _col in enumerate(_cols):
+                _cat, _em, _pct, _cnt, _key = _ch_tiles[_row * 3 + _ci]
+                with _col:
+                    _is_on = _ch_active == _cat
+                    _ckey = _ch_streamlit_colors.get(_cat, "blue")
+                    _label = (
+                        f"{_em} :{_ckey}[**{_cat}** · **{_pct:.0f}%**]  \n_{_cnt} members_"
+                    )
+                    if st.button(
+                        _label,
+                        key=_key,
+                        use_container_width=True,
+                        type="primary" if _is_on else "secondary",
+                    ):
+                        _toggle_cg_cell_health_tile_filter(_cat)
 
-        with col1:
-            if st.button("🔵 New", key="btn_new", use_container_width=True):
-                _toggle_cg_cell_health_tile_filter("New")
+        if _ch_active:
             st.markdown(
-                f"""
-            <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
-                <div class="kpi-label">New</div>
-                <div class="kpi-number" style="color: #3498db;">{new_pct:.0f}%</div>
-                <div class="kpi-subtitle">{new_count} members</div>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-
-        with col2:
-            if st.button("🟢 Regular", key="btn_regular", use_container_width=True):
-                _toggle_cg_cell_health_tile_filter("Regular")
-            st.markdown(
-                f"""
-            <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
-                <div class="kpi-label">Regular</div>
-                <div class="kpi-number" style="color: #2ecc71;">{regular_pct:.0f}%</div>
-                <div class="kpi-subtitle">{regular_count} members</div>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-
-        with col3:
-            if st.button("🟠 Irregular", key="btn_irregular", use_container_width=True):
-                _toggle_cg_cell_health_tile_filter("Irregular")
-            st.markdown(
-                f"""
-            <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
-                <div class="kpi-label">Irregular</div>
-                <div class="kpi-number" style="color: #e67e22;">{irregular_pct:.0f}%</div>
-                <div class="kpi-subtitle">{irregular_count} members</div>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-
-        col4, col5, col6 = st.columns(3)
-
-        with col4:
-            if st.button("🟡 Follow Up", key="btn_follow_up", use_container_width=True):
-                _toggle_cg_cell_health_tile_filter("Follow Up")
-            st.markdown(
-                f"""
-            <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
-                <div class="kpi-label">Follow Up</div>
-                <div class="kpi-number" style="color: #f39c12;">{follow_up_pct:.0f}%</div>
-                <div class="kpi-subtitle">{follow_up_count} members</div>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-
-        with col5:
-            if st.button("🔴 Red", key="btn_red", use_container_width=True):
-                _toggle_cg_cell_health_tile_filter("Red")
-            st.markdown(
-                f"""
-            <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
-                <div class="kpi-label">Red</div>
-                <div class="kpi-number" style="color: #e74c3c;">{red_pct:.0f}%</div>
-                <div class="kpi-subtitle">{red_count} members</div>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-
-        with col6:
-            if st.button("⭐ Graduated", key="btn_graduated", use_container_width=True):
-                _toggle_cg_cell_health_tile_filter("Graduated")
-            st.markdown(
-                f"""
-            <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
-                <div class="kpi-label">Graduated</div>
-                <div class="kpi-number" style="color: #9b59b6;">{graduated_pct:.0f}%</div>
-                <div class="kpi-subtitle">{graduated_count} members</div>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-
-        _active = st.session_state.get("cg_cell_health_tile_filter")
-        if _active:
-            st.markdown(
-                f"<p style='color: #888; font-size: 0.85rem; margin-top: 0.5rem;'>Individual Attendance filter: <b style=\"color: {daily_colors['primary']}\">{html.escape(_active)}</b></p>",
+                f"<p style='color: #888; font-size: 0.85rem; margin-top: 0.5rem;'>Individual Attendance filter: <b style=\"color: {daily_colors['primary']}\">{html.escape(_ch_active)}</b></p>",
                 unsafe_allow_html=True,
             )
     else:
@@ -2971,33 +2918,30 @@ st.markdown(f"""
         margin-top: 0.5rem;
     }}
 
-    /* Compact Cell Health metric tiles (smaller footprint, denser grid) */
-    .kpi-card.kpi-card--cell-health {{
-        padding: 0.65rem 0.9rem !important;
-        min-height: 0 !important;
-        margin-bottom: 0.5rem !important;
-        border-left-width: 4px !important;
-        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.28) !important;
+    /* Cell Health tiles: one widget per column → centered, near-square buttons, less dead space */
+    [data-testid="stVerticalBlock"] > [data-testid="element-container"]:only-child button {{
+        min-height: 5.5rem !important;
+        max-width: min(100%, 11rem) !important;
+        min-width: 0 !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        width: 100% !important;
+        padding: 0.45rem 0.55rem !important;
+        white-space: normal !important;
+        line-height: 1.28 !important;
+        border: 1px solid rgba({primary_rgb[0]}, {primary_rgb[1]}, {primary_rgb[2]}, 0.42) !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
     }}
-    .kpi-card.kpi-card--cell-health:hover {{
-        transform: translateY(-2px) !important;
-        box-shadow: 0 5px 16px rgba(0, 0, 0, 0.42) !important;
-        border-left-width: 5px !important;
+    [data-testid="stVerticalBlock"] > [data-testid="element-container"]:only-child button:hover {{
+        border-color: rgba({primary_rgb[0]}, {primary_rgb[1]}, {primary_rgb[2]}, 0.75) !important;
     }}
-    .kpi-card.kpi-card--cell-health .kpi-label {{
-        font-size: 0.62rem !important;
-        letter-spacing: 1px !important;
-        margin-bottom: 0.15rem !important;
-    }}
-    .kpi-card.kpi-card--cell-health .kpi-number {{
-        font-size: 1.85rem !important;
-        font-weight: 800 !important;
-        margin: 0.1rem 0 !important;
-        text-shadow: 0 0 10px rgba({primary_rgb[0]}, {primary_rgb[1]}, {primary_rgb[2]}, 0.22) !important;
-    }}
-    .kpi-card.kpi-card--cell-health .kpi-subtitle {{
-        font-size: 0.68rem !important;
-        margin-top: 0.1rem !important;
+    [data-testid="stVerticalBlock"] > [data-testid="element-container"]:only-child button p {{
+        text-align: center !important;
+        font-size: 0.84rem !important;
+        margin: 0 !important;
     }}
 
     /* Mobile responsive - smaller cards on small screens */
@@ -3020,8 +2964,12 @@ st.markdown(f"""
             font-size: 0.7rem;
             margin-top: 0.25rem;
         }}
-        .kpi-card.kpi-card--cell-health .kpi-number {{
-            font-size: 1.5rem !important;
+        [data-testid="stVerticalBlock"] > [data-testid="element-container"]:only-child button {{
+            min-height: 4.75rem !important;
+            max-width: min(100%, 9.5rem) !important;
+        }}
+        [data-testid="stVerticalBlock"] > [data-testid="element-container"]:only-child button p {{
+            font-size: 0.76rem !important;
         }}
     }}
 
