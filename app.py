@@ -1,5 +1,6 @@
 import html
 import os
+from urllib.parse import quote, unquote
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 import colorsys
@@ -231,8 +232,8 @@ def _render_cg_leadership_section(display_df, cell_filter, cell_columns, daily_c
         st.info("No leadership data available.")
 
 
-def _render_cg_cell_health_section(display_df, daily_colors):
-    """Content for CG Health > Cell Health collapsible. Tiles set ``cg_cell_health_tile_filter`` for Individual Attendance."""
+def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "cg"):
+    """Cell Health tiles: full-color HTML links set ``cg_cell_health_tile_filter`` via ``?nwst_ch=`` (avoids Streamlit button CSS)."""
     if not display_df.empty:
         status_columns = [col for col in display_df.columns if "status" in col.lower()]
         status_col = status_columns[0] if status_columns else None
@@ -269,32 +270,36 @@ def _render_cg_cell_health_section(display_df, daily_colors):
         graduated_pct = (graduated_count / total_members * 100) if total_members > 0 else 0
 
         st.caption(
-            "Click a category to filter **Individual Attendance** below. Click the same category again to clear the status filter."
+            "Tap a colored tile to filter **Individual Attendance** below. Tap the **same** tile again to clear that filter, or use **Clear All** in that section."
         )
         _ch_active = st.session_state.get("cg_cell_health_tile_filter")
         _ch_tiles = [
-            ("New", "🔵", new_pct, new_count, "btn_new"),
-            ("Regular", "🟢", regular_pct, regular_count, "btn_regular"),
-            ("Irregular", "🟠", irregular_pct, irregular_count, "btn_irregular"),
-            ("Follow Up", "🟡", follow_up_pct, follow_up_count, "btn_follow_up"),
-            ("Red", "🔴", red_pct, red_count, "btn_red"),
-            ("Graduated", "⭐", graduated_pct, graduated_count, "btn_graduated"),
+            ("New", "🔵", new_pct, new_count, "#5dade2", "#1a5276", "#ffffff"),
+            ("Regular", "🟢", regular_pct, regular_count, "#58d68d", "#196f3d", "#ffffff"),
+            ("Irregular", "🟠", irregular_pct, irregular_count, "#f0b27a", "#a04000", "#ffffff"),
+            ("Follow Up", "🟡", follow_up_pct, follow_up_count, "#f7dc6f", "#b9770e", "#1a1a1a"),
+            ("Red", "🔴", red_pct, red_count, "#f1948a", "#922b21", "#ffffff"),
+            ("Graduated", "⭐", graduated_pct, graduated_count, "#af7ac5", "#6c3483", "#ffffff"),
         ]
         for _row in range(2):
             _cols = st.columns(3)
             for _ci, _col in enumerate(_cols):
-                _cat, _em, _pct, _cnt, _key = _ch_tiles[_row * 3 + _ci]
+                _cat, _em, _pct, _cnt, _gt, _gb, _tc = _ch_tiles[_row * 3 + _ci]
                 with _col:
-                    _is_on = _ch_active == _cat
-                    # Background color comes from CSS; keep label high-contrast (white) on tiles.
-                    _label = f"{_em} **{_cat}** · **{_pct:.0f}%**  \n_{_cnt} members_"
-                    if st.button(
-                        _label,
-                        key=_key,
-                        use_container_width=True,
-                        type="primary" if _is_on else "secondary",
-                    ):
-                        _toggle_cg_cell_health_tile_filter(_cat)
+                    st.markdown(
+                        _nwst_cell_health_tile_html(
+                            page_slug,
+                            _cat,
+                            _em,
+                            _pct,
+                            _cnt,
+                            _gt,
+                            _gb,
+                            _tc,
+                            _ch_active == _cat,
+                        ),
+                        unsafe_allow_html=True,
+                    )
 
         if _ch_active:
             st.markdown(
@@ -1341,12 +1346,76 @@ def categorize_member_status(attendance_count, total_possible):
         return "Follow Up"
 
 
-def _toggle_cg_cell_health_tile_filter(category: str) -> None:
-    """Drive **Individual Attendance** table filter from Cell Health tiles; click same tile to clear."""
-    if st.session_state.get("cg_cell_health_tile_filter") == category:
-        st.session_state.cg_cell_health_tile_filter = None
-    else:
-        st.session_state.cg_cell_health_tile_filter = category
+def _qp_first(val, default="cg"):
+    """Normalize ``st.query_params`` values (string or single-element list)."""
+    if val is None:
+        return default
+    if isinstance(val, list):
+        return val[0] if val else default
+    return str(val)
+
+
+def _consume_nwst_cell_health_query_param() -> None:
+    """Apply Cell Health tile choice from ``?nwst_ch=…`` then drop the param (keeps ``page=``)."""
+    qp = st.query_params
+    if "nwst_ch" not in qp:
+        return
+    raw = qp["nwst_ch"]
+    val = raw[0] if isinstance(raw, list) else raw
+    if val is None or str(val).strip() == "":
+        try:
+            del qp["nwst_ch"]
+        except Exception:
+            pass
+        st.rerun()
+        return
+    val = unquote(str(val))
+    allowed = {"New", "Regular", "Irregular", "Follow Up", "Red", "Graduated"}
+    if val in allowed:
+        cur = st.session_state.get("cg_cell_health_tile_filter")
+        if cur == val:
+            st.session_state.cg_cell_health_tile_filter = None
+        else:
+            st.session_state.cg_cell_health_tile_filter = val
+    try:
+        del qp["nwst_ch"]
+    except Exception:
+        pass
+    st.rerun()
+
+
+def _nwst_cell_health_tile_href(page_slug: str, category: str) -> str:
+    return f"?page={quote(str(page_slug), safe='')}&nwst_ch={quote(category, safe='')}"
+
+
+def _nwst_cell_health_tile_html(
+    page_slug: str,
+    category: str,
+    emoji: str,
+    pct: float,
+    count: int,
+    grad_top: str,
+    grad_bot: str,
+    text_color: str,
+    active: bool,
+) -> str:
+    href = _nwst_cell_health_tile_href(page_slug, category)
+    ring = (
+        "box-shadow:0 0 0 3px #ffffff,0 6px 22px rgba(0,0,0,0.45);"
+        if active
+        else "box-shadow:0 4px 16px rgba(0,0,0,0.35);"
+    )
+    cat_esc = html.escape(category)
+    return (
+        f'<a href="{html.escape(href)}" style="display:block;text-decoration:none;'
+        f"color:{text_color};background:linear-gradient(155deg,{grad_top},{grad_bot});"
+        f"border-radius:14px;padding:14px 12px;margin-bottom:10px;text-align:center;"
+        f"font-family:Inter,system-ui,sans-serif;{ring}\">"
+        f'<div style="font-weight:800;font-size:1rem;line-height:1.35">{emoji} '
+        f"<b>{cat_esc}</b> · <b>{pct:.0f}%</b></div>"
+        f'<div style="opacity:0.92;font-size:0.85rem;font-style:italic;margin-top:6px">'
+        f"{count} members</div></a>"
+    )
 
 
 def extract_cell_sheet_status_type(status_val):
@@ -2906,165 +2975,6 @@ st.markdown(f"""
         margin-top: 0.5rem;
     }}
 
-    /*
-     * Cell Health tiles — Streamlit widget ids end with user key (e.g. -btn_new).
-     * These selectors beat the global .stButton > button transparent background.
-     */
-    [id$="-btn_new"] .stButton > button,
-    button[id$="-btn_new"] {{
-        background: linear-gradient(155deg, #5dade2 0%, #2e86c1 45%, #1a5276 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        box-shadow: 0 4px 16px rgba(26, 82, 114, 0.45) !important;
-    }}
-    [id$="-btn_regular"] .stButton > button,
-    button[id$="-btn_regular"] {{
-        background: linear-gradient(155deg, #58d68d 0%, #28b463 45%, #196f3d 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        box-shadow: 0 4px 16px rgba(25, 111, 61, 0.45) !important;
-    }}
-    [id$="-btn_irregular"] .stButton > button,
-    button[id$="-btn_irregular"] {{
-        background: linear-gradient(155deg, #f0b27a 0%, #e67e22 45%, #a04000 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        box-shadow: 0 4px 16px rgba(160, 64, 0, 0.4) !important;
-    }}
-    [id$="-btn_follow_up"] .stButton > button,
-    button[id$="-btn_follow_up"] {{
-        background: linear-gradient(155deg, #f7dc6f 0%, #f39c12 40%, #b9770e 100%) !important;
-        color: #1a1a1a !important;
-        border: none !important;
-        box-shadow: 0 4px 16px rgba(185, 119, 14, 0.4) !important;
-    }}
-    [id$="-btn_red"] .stButton > button,
-    button[id$="-btn_red"] {{
-        background: linear-gradient(155deg, #f1948a 0%, #e74c3c 40%, #922b21 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        box-shadow: 0 4px 16px rgba(146, 43, 33, 0.45) !important;
-    }}
-    [id$="-btn_graduated"] .stButton > button,
-    button[id$="-btn_graduated"] {{
-        background: linear-gradient(155deg, #af7ac5 0%, #9b59b6 40%, #6c3483 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        box-shadow: 0 4px 16px rgba(108, 52, 131, 0.45) !important;
-    }}
-
-    [id$="-btn_new"] .stButton > button,
-    [id$="-btn_regular"] .stButton > button,
-    [id$="-btn_irregular"] .stButton > button,
-    [id$="-btn_follow_up"] .stButton > button,
-    [id$="-btn_red"] .stButton > button,
-    [id$="-btn_graduated"] .stButton > button,
-    button[id$="-btn_new"],
-    button[id$="-btn_regular"],
-    button[id$="-btn_irregular"],
-    button[id$="-btn_follow_up"],
-    button[id$="-btn_red"],
-    button[id$="-btn_graduated"] {{
-        min-height: 5.15rem !important;
-        width: 100% !important;
-        max-width: none !important;
-        margin: 0 auto !important;
-        padding: 0.55rem 0.65rem !important;
-        border-radius: 14px !important;
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: center !important;
-        justify-content: center !important;
-        white-space: normal !important;
-        line-height: 1.3 !important;
-        transition: filter 0.15s ease, box-shadow 0.15s ease !important;
-    }}
-    [id$="-btn_new"] .stButton > button:hover,
-    [id$="-btn_regular"] .stButton > button:hover,
-    [id$="-btn_irregular"] .stButton > button:hover,
-    [id$="-btn_follow_up"] .stButton > button:hover,
-    [id$="-btn_red"] .stButton > button:hover,
-    [id$="-btn_graduated"] .stButton > button:hover,
-    button[id$="-btn_new"]:hover,
-    button[id$="-btn_regular"]:hover,
-    button[id$="-btn_irregular"]:hover,
-    button[id$="-btn_follow_up"]:hover,
-    button[id$="-btn_red"]:hover,
-    button[id$="-btn_graduated"]:hover {{
-        filter: brightness(1.07) !important;
-    }}
-
-    [id$="-btn_new"] .stButton > button p,
-    [id$="-btn_regular"] .stButton > button p,
-    [id$="-btn_irregular"] .stButton > button p,
-    [id$="-btn_red"] .stButton > button p,
-    [id$="-btn_graduated"] .stButton > button p,
-    button[id$="-btn_new"] p,
-    button[id$="-btn_regular"] p,
-    button[id$="-btn_irregular"] p,
-    button[id$="-btn_red"] p,
-    button[id$="-btn_graduated"] p {{
-        text-align: center !important;
-        font-size: 0.86rem !important;
-        margin: 0 !important;
-        color: #ffffff !important;
-    }}
-    [id$="-btn_follow_up"] .stButton > button p,
-    button[id$="-btn_follow_up"] p {{
-        color: #1a1a1a !important;
-    }}
-    [id$="-btn_new"] .stButton > button strong,
-    [id$="-btn_regular"] .stButton > button strong,
-    [id$="-btn_irregular"] .stButton > button strong,
-    [id$="-btn_red"] .stButton > button strong,
-    [id$="-btn_graduated"] .stButton > button strong,
-    button[id$="-btn_new"] strong,
-    button[id$="-btn_regular"] strong,
-    button[id$="-btn_irregular"] strong,
-    button[id$="-btn_red"] strong,
-    button[id$="-btn_graduated"] strong {{
-        color: #ffffff !important;
-        font-weight: 800 !important;
-    }}
-    [id$="-btn_follow_up"] .stButton > button strong,
-    button[id$="-btn_follow_up"] strong {{
-        color: #1a1a1a !important;
-    }}
-    [id$="-btn_new"] .stButton > button em,
-    [id$="-btn_regular"] .stButton > button em,
-    [id$="-btn_irregular"] .stButton > button em,
-    [id$="-btn_red"] .stButton > button em,
-    [id$="-btn_graduated"] .stButton > button em,
-    button[id$="-btn_new"] em,
-    button[id$="-btn_regular"] em,
-    button[id$="-btn_irregular"] em,
-    button[id$="-btn_red"] em,
-    button[id$="-btn_graduated"] em {{
-        color: rgba(255, 255, 255, 0.88) !important;
-        font-style: italic !important;
-    }}
-    [id$="-btn_follow_up"] .stButton > button em,
-    button[id$="-btn_follow_up"] em {{
-        color: rgba(26, 26, 26, 0.82) !important;
-    }}
-
-    [id$="-btn_new"] .stButton > button[data-testid="stBaseButton-primary"],
-    [id$="-btn_regular"] .stButton > button[data-testid="stBaseButton-primary"],
-    [id$="-btn_irregular"] .stButton > button[data-testid="stBaseButton-primary"],
-    [id$="-btn_follow_up"] .stButton > button[data-testid="stBaseButton-primary"],
-    [id$="-btn_red"] .stButton > button[data-testid="stBaseButton-primary"],
-    [id$="-btn_graduated"] .stButton > button[data-testid="stBaseButton-primary"],
-    button[id$="-btn_new"][data-testid="stBaseButton-primary"],
-    button[id$="-btn_regular"][data-testid="stBaseButton-primary"],
-    button[id$="-btn_irregular"][data-testid="stBaseButton-primary"],
-    button[id$="-btn_follow_up"][data-testid="stBaseButton-primary"],
-    button[id$="-btn_red"][data-testid="stBaseButton-primary"],
-    button[id$="-btn_graduated"][data-testid="stBaseButton-primary"] {{
-        box-shadow: 0 0 0 2px #ffffff, 0 0 0 5px rgba(0, 0, 0, 0.25), 0 6px 22px rgba(0, 0, 0, 0.38) !important;
-        filter: brightness(1.05) !important;
-    }}
-
-    /* Mobile: wrap Cell Health rows (2 tiles per row) */
     @media (max-width: 768px) {{
         .kpi-card {{
             padding: 1rem 1.25rem;
@@ -3083,45 +2993,6 @@ st.markdown(f"""
         .kpi-subtitle {{
             font-size: 0.7rem;
             margin-top: 0.25rem;
-        }}
-        [data-baseweb="flex-grid"]:has([id$="-btn_new"]),
-        [data-baseweb="flex-grid"]:has([id$="-btn_follow_up"]) {{
-            flex-wrap: wrap !important;
-            gap: 0.5rem !important;
-            row-gap: 0.55rem !important;
-        }}
-        [data-testid="column"]:has([id$="-btn_new"]),
-        [data-testid="column"]:has([id$="-btn_regular"]),
-        [data-testid="column"]:has([id$="-btn_irregular"]),
-        [data-testid="column"]:has([id$="-btn_follow_up"]),
-        [data-testid="column"]:has([id$="-btn_red"]),
-        [data-testid="column"]:has([id$="-btn_graduated"]) {{
-            flex: 1 1 calc(50% - 0.35rem) !important;
-            max-width: calc(50% - 0.35rem) !important;
-            min-width: calc(50% - 0.35rem) !important;
-            width: calc(50% - 0.35rem) !important;
-        }}
-        [id$="-btn_new"] .stButton > button,
-        [id$="-btn_regular"] .stButton > button,
-        [id$="-btn_irregular"] .stButton > button,
-        [id$="-btn_follow_up"] .stButton > button,
-        [id$="-btn_red"] .stButton > button,
-        [id$="-btn_graduated"] .stButton > button,
-        button[id$="-btn_new"],
-        button[id$="-btn_regular"],
-        button[id$="-btn_irregular"],
-        button[id$="-btn_follow_up"],
-        button[id$="-btn_red"],
-        button[id$="-btn_graduated"] {{
-            min-height: 4.85rem !important;
-        }}
-        [id$="-btn_new"] .stButton > button p,
-        [id$="-btn_regular"] .stButton > button p,
-        [id$="-btn_irregular"] .stButton > button p,
-        [id$="-btn_follow_up"] .stButton > button p,
-        [id$="-btn_red"] .stButton > button p,
-        [id$="-btn_graduated"] .stButton > button p {{
-            font-size: 0.8rem !important;
         }}
     }}
 
@@ -3383,7 +3254,8 @@ st.title("🏥 NWST Health")
 
 # Get page from query parameters
 query_params = st.query_params
-current_page = query_params.get("page", "cg")
+current_page = _qp_first(query_params.get("page"), "cg")
+_consume_nwst_cell_health_query_param()
 
 # Page navigation buttons
 st.markdown(f"""
@@ -3648,7 +3520,7 @@ if current_page == "cg":
             # CELL HEALTH SECTION
             st.markdown(_nwst_collapsible_section_css(daily_colors["primary"]), unsafe_allow_html=True)
             with st.expander("🏥 CELL HEALTH", expanded=False):
-                _render_cg_cell_health_section(display_df, daily_colors)
+                _render_cg_cell_health_section(display_df, daily_colors, current_page)
 
             with st.expander("👤 INDIVIDUAL ATTENDANCE", expanded=False):
                 if not display_df.empty:
