@@ -260,45 +260,29 @@ def _nwst_hex_to_rgb_csv(hex_color: str) -> str:
     return f"{int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}"
 
 
-def _nwst_cell_health_tile_face_css(_ch_tiles: list, active: str | None) -> str:
-    """Style tile buttons like ``ref.py`` KPI cards: dark panel, colored left rule, muted label / body copy."""
+def _nwst_cell_health_tile_face_css(n_tile: int) -> str:
+    """Overlay invisible ``st.button`` on markdown tile face — Streamlit does not render HTML in button labels."""
     parts: list[str] = []
-    for idx, row in enumerate(_ch_tiles):
-        _cat = row[0]
-        accent = row[3]
-        sel = f'[class$="nwst_ch_face_{idx}"] .stButton > button'
-        extra = (
-            f"outline:2px solid {accent}!important;outline-offset:2px!important;"
-            "box-shadow:0 12px 40px rgba(0,0,0,0.5)!important;"
-            if _cat == active
-            else ""
-        )
-        core = (
-            "background:#1a1a1a!important;border-radius:0!important;"
-            f"border:1px solid #2a2a2a!important;border-left:6px solid {accent}!important;"
-            "box-shadow:0 8px 32px rgba(0,0,0,0.3)!important;"
-            "min-height:5.25rem!important;white-space:normal!important;line-height:1.35!important;"
-            "text-align:left!important;padding:0.75rem 1rem!important;"
-            "transform:none!important;color:#cccccc!important;font-family:'Inter',sans-serif!important;"
-            "align-items:flex-start!important;justify-content:flex-start!important;"
-        )
+    for idx in range(n_tile):
+        root = f'[class$="nwst_ch_face_{idx}"]'
         parts.append(
-            f"{sel}{{{core}{extra}}}\n"
-            f"{sel}:hover{{"
-            "filter:brightness(1.06)!important;"
-            f"border-left-width:8px!important;"
-            "transform:translateY(-2px)!important;"
-            "box-shadow:0 12px 40px rgba(0,0,0,0.5)!important;"
-            f"background:#1a1a1a!important;color:#cccccc!important;"
-            "border-color:#2a2a2a!important;"
-            f"border-left-color:{accent}!important;"
-            "}}\n"
+            f"{root}{{position:relative!important;min-height:5.25rem!important;}}\n"
+            f"{root} [data-testid='stMarkdownContainer']{{pointer-events:none!important;}}\n"
+            f"{root} .stButton{{position:absolute!important;inset:0!important;z-index:2!important;"
+            "height:auto!important;width:100%!important;}}\n"
+            f"{root} .stButton>button{{position:absolute!important;inset:0!important;width:100%!important;"
+            "height:100%!important;min-height:5.25rem!important;opacity:0!important;cursor:pointer!important;"
+            "padding:0!important;margin:0!important;border:none!important;background:transparent!important;"
+            "box-shadow:none!important;}}\n"
+            f"{root}:hover .nwst-ch-tile-face{{filter:brightness(1.06)!important;"
+            "transform:translateY(-2px)!important;box-shadow:0 12px 40px rgba(0,0,0,0.5)!important;"
+            "border-left-width:8px!important;}}\n"
         )
     return "".join(parts)
 
 
 def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "cg"):
-    """Cell Health tiles: colored ``st.button`` widgets toggle ``cg_cell_health_tile_filter`` (soft rerun only)."""
+    """Cell Health tiles: HTML face via ``st.markdown`` + invisible ``st.button`` overlay (labels are plain text only)."""
     _ = page_slug  # retained for callers; URL ``?nwst_ch=`` still handled by ``_consume_nwst_cell_health_query_param``
     if not display_df.empty:
         status_columns = [col for col in display_df.columns if "status" in col.lower()]
@@ -348,7 +332,7 @@ def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "c
 
         with st.container(key="nwst_cell_health_tiles"):
             st.markdown(
-                f"<style>{_nwst_cell_health_tile_face_css(_ch_tiles, _ch_active)}</style>",
+                f"<style>{_nwst_cell_health_tile_face_css(len(_ch_tiles))}</style>",
                 unsafe_allow_html=True,
             )
             st.caption(
@@ -361,7 +345,13 @@ def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "c
                     _cat, _pct, _cnt, _accent = _ch_tiles[_idx]
                     _rgb = _nwst_hex_to_rgb_csv(_accent)
                     _kpi_lbl = _NWST_CH_KPI_LABELS.get(_cat, _cat)
-                    _lbl = (
+                    _active_outline = (
+                        f"outline:2px solid {_accent};outline-offset:2px;"
+                        "box-shadow:0 12px 40px rgba(0,0,0,0.5);"
+                        if _cat == _ch_active
+                        else ""
+                    )
+                    _inner = (
                         f"<span style=\"font-size:0.72rem;font-weight:700;color:#999999;text-transform:uppercase;"
                         f"letter-spacing:0.12em;\">{html.escape(_kpi_lbl)}</span> · "
                         f"<span style=\"color:{_accent};font-weight:900;font-size:1.35rem;"
@@ -369,15 +359,26 @@ def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "c
                         f"<span style=\"font-size:0.82rem;color:#cccccc;font-style:italic;\">"
                         f"{_cnt} members</span>"
                     )
+                    _tile_html = (
+                        f'<div class="nwst-ch-tile-face" style="background:#1a1a1a;border:1px solid #2a2a2a;'
+                        f"border-left:6px solid {_accent};border-radius:0;"
+                        "box-shadow:0 8px 32px rgba(0,0,0,0.3);min-height:5.25rem;padding:0.75rem 1rem;"
+                        "text-align:left;font-family:'Inter',sans-serif;line-height:1.35;white-space:normal;"
+                        f"transition:transform 0.2s ease,box-shadow 0.2s ease,border-left-width 0.2s ease;"
+                        f"{_active_outline}\">{_inner}</div>"
+                    )
                     with _col:
                         with st.container(key=f"nwst_ch_face_{_idx}"):
+                            st.markdown(_tile_html, unsafe_allow_html=True)
                             st.button(
-                                _lbl,
+                                f"Filter {_cat}",
                                 key=f"nwst_ch_btn_{_idx}",
                                 on_click=_toggle_cg_cell_health_tile,
                                 args=(_cat,),
                                 use_container_width=True,
                                 type="secondary",
+                                label_visibility="collapsed",
+                                help=f"Tap to filter Individual Attendance by «{_cat}» (tap again to clear).",
                             )
 
         if _ch_active:
