@@ -253,7 +253,7 @@ def _render_cg_leadership_section(display_df, cell_filter, cell_columns, daily_c
         st.info("No leadership data available.")
 
 
-def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats, cell_filter="All"):
+def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
     """CG Health — mix quick view + WoW from **Historical Cell Status** (no KPI tile expanders)."""
     prim_hex = str(daily_colors.get("primary", "#00ff00"))
     prim = html.escape(prim_hex, quote=True)
@@ -307,17 +307,9 @@ def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats, c
     }
 
     hist_df = load_historical_cell_status_dataframe()
-    curr_agg, prev_agg, snap_curr, snap_prev = (None, None, None, None)
+    curr_agg, prev_agg = None, None
     if hist_df is not None and not hist_df.empty:
-        curr_agg, prev_agg, snap_curr, snap_prev = _nwst_hist_cell_wow_for_scope(hist_df, cell_filter)
-
-    scope_lbl = html.escape(str(cell_filter), quote=True) if cell_filter and str(cell_filter).strip().lower() != "all" else "All cells"
-    if snap_curr:
-        snap_line = f"Log baseline: <b>{html.escape(str(snap_curr), quote=True)}</b>"
-        if snap_prev:
-            snap_line += f" vs <b>{html.escape(str(snap_prev), quote=True)}</b>"
-    else:
-        snap_line = "Add rows to <b>Historical Cell Status</b> (Apps Script log) for WoW."
+        curr_agg, prev_agg, _, _ = _nwst_hist_cell_wow_for_scope(hist_df, cell_filter)
 
     st.markdown(
         f"""
@@ -329,28 +321,36 @@ def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats, c
     color: {prim};
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    margin: 0 0 0.25rem 0;
+    margin: 0 0 1rem 0;
     text-shadow: 0 0 18px {prim};
   }}
-  .ch-sub {{
-    font-family: 'Inter', sans-serif;
-    font-size: 0.82rem;
-    color: #999;
-    margin: 0 0 1rem 0;
+  .ch-wow-scroll {{
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.15rem;
   }}
   .ch-wow-grid {{
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 0.65rem;
-    margin-bottom: 0.5rem;
+    width: 100%;
+    min-width: 34rem;
   }}
   .ch-wow-tile {{
-    flex: 1 1 140px;
-    min-width: 128px;
+    min-width: 0;
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: stretch;
+    box-sizing: border-box;
     background: #111;
     border: 2px solid {prim};
     border-radius: 0;
-    padding: 0.65rem 0.75rem 0.75rem;
+    padding: 0.5rem 0.4rem 0.55rem;
     box-shadow: 0 0 22px rgba(0,0,0,0.55), 0 0 18px rgba({_pr},{_pg},{_pb},0.28);
   }}
   .ch-wow-label {{
@@ -360,31 +360,33 @@ def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats, c
     color: #888;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    margin-bottom: 0.35rem;
+      margin-bottom: 0.35rem;
   }}
   .ch-wow-pct {{
     font-family: 'Inter', sans-serif;
-    font-size: 2.1rem;
+    font-size: clamp(1.15rem, 2.6vw, 2.05rem);
     font-weight: 900;
     line-height: 1;
     margin: 0;
   }}
   .ch-wow-n {{
     font-family: 'Inter', sans-serif;
-    font-size: 0.78rem;
+    font-size: clamp(0.62rem, 1.1vw, 0.78rem);
     color: #bbb;
-    margin: 0.35rem 0 0.15rem;
+    margin: 0.3rem 0 0.1rem;
   }}
   .ch-wow-delta {{
     font-family: 'Inter', sans-serif;
-    font-size: 0.88rem;
+    font-size: clamp(0.6rem, 1vw, 0.82rem);
     font-weight: 800;
     letter-spacing: 0.03em;
-    margin-top: 0.2rem;
+    margin-top: 0.15rem;
+    line-height: 1.25;
+    word-break: break-word;
   }}
 </style>
 <p class="ch-head">Cell health mix</p>
-<p class="ch-sub">Scope: {scope_lbl} · Live roster from CG Combined. {snap_line}</p>
+<div class="ch-wow-scroll">
 <div class="ch-wow-grid">
 """,
         unsafe_allow_html=True,
@@ -436,48 +438,7 @@ def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats, c
 """
         )
 
-    st.markdown("".join(tile_html_parts) + "</div>", unsafe_allow_html=True)
-
-    with st.expander("Names by status (optional)", expanded=False):
-        if not status_col:
-            st.caption("No Status column — name lists unavailable.")
-        else:
-            name_col = "name" if "name" in work_df.columns else ("Name" if "Name" in work_df.columns else None)
-            if not name_col:
-                st.dataframe(work_df, use_container_width=True)
-            else:
-                cell_col = None
-                for col in work_df.columns:
-                    if col.lower().strip() in ("cell", "group"):
-                        cell_col = col
-                        break
-                for label, stype in [
-                    ("New", "New"),
-                    ("Regular", "Regular"),
-                    ("Irregular", "Irregular"),
-                    ("Follow Up", "Follow Up"),
-                    ("Red", "Red"),
-                    ("Graduated", "Graduated"),
-                ]:
-                    sub = work_df[work_df["status_type"] == stype]
-                    if sub.empty:
-                        continue
-                    st.markdown(f"**{label}**")
-                    names = sorted(sub[name_col].dropna().astype(str).unique().tolist(), key=str.lower)
-                    tiles_html = ""
-                    for nm in names:
-                        person_cell = ""
-                        if cell_col:
-                            pr = sub[sub[name_col] == nm]
-                            if not pr.empty:
-                                person_cell = pr[cell_col].iloc[0]
-                        tip = html.escape(get_attendance_text(nm, person_cell, attendance_stats), quote=True)
-                        tiles_html += (
-                            f"<span class='member-tile' style='border-color: {prim};' "
-                            f"data-tooltip='{tip}'>{html.escape(nm, quote=True)}</span> "
-                        )
-                    st.markdown(tiles_html, unsafe_allow_html=True)
-                    st.markdown("")
+    st.markdown("".join(tile_html_parts) + "</div></div>", unsafe_allow_html=True)
 
 
 def _render_cg_detailed_members_section(display_df, daily_colors):
@@ -1611,49 +1572,6 @@ def _resolve_cg_name_cell_columns(cg_df):
     return cg_name_col, cg_cell_col
 
 
-def _compute_attendance_stats_from_frames(att_df, cg_df):
-    """Build attendance_stats dict (Name + Cell key) from raw sheet frames."""
-    attendance_stats = {}
-    cg_name_col, cg_cell_col = _resolve_cg_name_cell_columns(cg_df)
-    att_name_col = att_df.columns[0] if len(att_df.columns) > 0 else None
-
-    if not att_name_col:
-        return attendance_stats
-
-    for att_name in att_df[att_name_col].unique():
-        if pd.isna(att_name) or att_name == '':
-            continue
-
-        att_name_str = str(att_name).strip()
-        member_att_data = att_df[att_df[att_name_col] == att_name]
-
-        attendance_count = 0
-        total_services = 0
-
-        for col_idx, col in enumerate(att_df.columns):
-            if col_idx >= 3:
-                total_services += 1
-                values = member_att_data[col].values
-                if len(values) > 0 and str(values[0]).strip() == '1':
-                    attendance_count += 1
-
-        cell_info = ""
-        if cg_name_col and cg_cell_col:
-            cg_match = cg_df[cg_df[cg_name_col].str.strip().str.lower() == att_name_str.lower()]
-            if not cg_match.empty:
-                cell_info = " - " + str(cg_match[cg_cell_col].iloc[0]).strip()
-
-        if total_services > 0:
-            key = att_name_str + cell_info
-            attendance_stats[key] = {
-                'attendance': attendance_count,
-                'total': total_services,
-                'percentage': round(attendance_count / total_services * 100) if total_services > 0 else 0
-            }
-
-    return attendance_stats
-
-
 def categorize_member_status(attendance_count, total_possible):
     """Categorize member as Regular, Irregular, or Follow Up based on attendance."""
     if attendance_count >= (total_possible * 0.75):  # 75% and above attendance = Regular
@@ -2174,61 +2092,6 @@ def render_monthly_status_html_table(df):
         "</table></div>"
     )
 
-
-@st.cache_data(ttl=300)
-def get_attendance_data():
-    """Load attendance data from Google Sheet 'Attendance' tab using only column A."""
-    redis = get_redis_client()
-    if redis:
-        try:
-            cached_data = redis.get("nwst_attendance_stats")
-            if cached_data:
-                return json.loads(cached_data)
-        except Exception:
-            pass
-
-    att_df, cg_df = load_attendance_and_cg_dataframes()
-    if att_df is None or cg_df is None:
-        return {}
-
-    attendance_stats = _compute_attendance_stats_from_frames(att_df, cg_df)
-
-    redis = get_redis_client()
-    if redis:
-        try:
-            redis.set("nwst_attendance_stats", json.dumps(attendance_stats), ex=300)
-        except Exception:
-            pass
-
-    return attendance_stats
-
-
-def get_attendance_text(name, cell, attendance_stats):
-    """Get attendance text for a member from attendance_stats dict using Name + Cell."""
-    if not attendance_stats:
-        return name
-
-    name_stripped = str(name).strip()
-    cell_stripped = str(cell).strip() if cell else ""
-
-    # Build the key: "Name - Cell"
-    if cell_stripped:
-        key = f"{name_stripped} - {cell_stripped}"
-    else:
-        key = name_stripped
-
-    # Try exact match
-    if key in attendance_stats:
-        stats = attendance_stats[key]
-        return f"{name} - {stats['attendance']}/{stats['total']} ({stats['percentage']}%)"
-
-    # Try case-insensitive match
-    key_lower = key.lower()
-    for dict_key, stats in attendance_stats.items():
-        if dict_key.lower() == key_lower:
-            return f"{name} - {stats['attendance']}/{stats['total']} ({stats['percentage']}%)"
-
-    return name
 
 def get_member_category_color(category):
     """Return color based on member category."""
@@ -3726,7 +3589,6 @@ if current_page == "cg":
     st.markdown("")
     try:
         newcomers_df = get_newcomers_data()
-        attendance_stats = get_attendance_data()
 
         if not newcomers_df.empty:
             # Get unique cell names for filtering
@@ -3773,7 +3635,7 @@ if current_page == "cg":
                     display_df = display_df[display_df[status_columns[0]] == status_filter]
 
             # CELL HEALTH — quick view (Historical Cell Status WoW + live CG Combined mix)
-            _render_cg_cell_health_section(display_df, daily_colors, attendance_stats, cell_filter)
+            _render_cg_cell_health_section(display_df, daily_colors, cell_filter)
 
             with st.expander("👤 INDIVIDUAL ATTENDANCE", expanded=False):
                 if not display_df.empty:
