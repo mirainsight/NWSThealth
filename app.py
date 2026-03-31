@@ -33,6 +33,28 @@ NWST_ATTENDANCE_TAB = "Attendance"
 NWST_OPTIONS_TAB = "Options"
 NWST_ATTENDANCE_ANALYTICS_TAB = "Attendance Analytics"
 NWST_STATUS_HISTORICAL_TAB = "Status Historical"
+NWST_HISTORICAL_CELL_STATUS_TAB = "Historical Cell Status"
+
+# Map CG Combined **Cell** dropdown value → short tab name (matches Apps Script `tabNameToDisplayCellForHistory_` inverse).
+_NWST_CELL_DISPLAY_TO_TAB = {
+    "Anchor Street": "Anchor",
+    "Aster Street": "Aster",
+    "Crown Street": "Crown",
+    "Street Fire": "Fire",
+    "Fishers Street": "Fishers",
+    "Street Forth": "Forth",
+    "HIS Street": "HIS",
+    "Home Street": "Home",
+    "King Street": "King",
+    "Life Street": "Life",
+    "Meta Street": "Meta",
+    "Royal Street": "Royal",
+    "Street Runners": "Runners",
+    "Shepherds Street": "Shepherds",
+    "Street Lights": "Lights",
+    "Via Dolorosa Street": "Via Dolorosa",
+    "Narrowstreet Core Team": "Core Team",
+}
 
 # Shared by “Attendance rate by cell” (per-zone tabs) and “Zone Attendance Trend” in Analytics
 NWST_ANALYTICS_MULTILINE_PALETTE = [
@@ -231,341 +253,231 @@ def _render_cg_leadership_section(display_df, cell_filter, cell_columns, daily_c
         st.info("No leadership data available.")
 
 
-def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats):
-    """Content for CG Health > Cell Health collapsible."""
-    if not display_df.empty:
-        # Find status column
-        status_columns = [col for col in display_df.columns if 'status' in col.lower()]
-        status_col = status_columns[0] if status_columns else None
+def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats, cell_filter="All"):
+    """CG Health — mix quick view + WoW from **Historical Cell Status** (no KPI tile expanders)."""
+    prim_hex = str(daily_colors.get("primary", "#00ff00"))
+    prim = html.escape(prim_hex, quote=True)
+    ph = prim_hex.lstrip("#")
+    try:
+        _pr, _pg, _pb = (int(ph[i : i + 2], 16) for i in (0, 2, 4)) if len(ph) >= 6 else (0, 255, 0)
+    except ValueError:
+        _pr, _pg, _pb = 0, 255, 0
 
-        # Calculate counts by status - extracting the prefix from the descriptive status
-        if status_col:
-            # Create a mapped status column (same rules as Monthly Health _tile_status)
-            display_df['status_type'] = display_df[status_col].apply(extract_cell_sheet_status_type)
+    def _agg_n(agg, key):
+        if not agg:
+            return 0
+        if key == "follow_up":
+            return int(agg.get("follow up", 0) or 0)
+        return int(agg.get(key, 0) or 0)
 
-            new_count = len(display_df[display_df['status_type'] == "New"])
-            regular_count = len(display_df[display_df['status_type'] == "Regular"])
-            irregular_count = len(display_df[display_df['status_type'] == "Irregular"])
-            follow_up_count = len(display_df[display_df['status_type'] == "Follow Up"])
-            red_count = len(display_df[display_df['status_type'] == "Red"])
-            graduated_count = len(display_df[display_df['status_type'] == "Graduated"])
-        else:
-            # Fallback if no status column
-            total_members = len(display_df)
-            new_count = max(1, int(total_members * 0.20))
-            regular_count = max(1, int(total_members * 0.40))
-            irregular_count = max(1, int(total_members * 0.20))
-            follow_up_count = max(1, int(total_members * 0.10))
-            red_count = max(1, int(total_members * 0.05))
-            graduated_count = total_members - new_count - regular_count - irregular_count - follow_up_count - red_count
-
-        total_members = new_count + regular_count + irregular_count + follow_up_count + red_count + graduated_count
-
-        regular_pct = (regular_count / total_members * 100) if total_members > 0 else 0
-        irregular_pct = (irregular_count / total_members * 100) if total_members > 0 else 0
-        new_pct = (new_count / total_members * 100) if total_members > 0 else 0
-        follow_up_pct = (follow_up_count / total_members * 100) if total_members > 0 else 0
-        red_pct = (red_count / total_members * 100) if total_members > 0 else 0
-        graduated_pct = (graduated_count / total_members * 100) if total_members > 0 else 0
-
-        # Member status row - make clickable to expand details
-        col1, col2, col3 = st.columns(3)
-
-        # Initialize session state for expanded states
-        if 'expand_new' not in st.session_state:
-            st.session_state.expand_new = False
-        if 'expand_regular' not in st.session_state:
-            st.session_state.expand_regular = False
-        if 'expand_irregular' not in st.session_state:
-            st.session_state.expand_irregular = False
-        if 'expand_follow_up' not in st.session_state:
-            st.session_state.expand_follow_up = False
-        if 'expand_red' not in st.session_state:
-            st.session_state.expand_red = False
-        if 'expand_graduated' not in st.session_state:
-            st.session_state.expand_graduated = False
-
-        with col1:
-            if st.button(f"🔵 New", key="btn_new", use_container_width=True):
-                st.session_state.expand_new = not st.session_state.expand_new
-            st.markdown(f"""
-            <div class="kpi-card" style="cursor: pointer;">
-                <div class="kpi-label">New Members</div>
-                <div class="kpi-number" style="color: #3498db;">{new_pct:.0f}%</div>
-                <div class="kpi-subtitle">{new_count} members</div>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.session_state.expand_new:
-                st.markdown(f"<p style='color: #3498db; font-weight: 600;'>New Members</p>", unsafe_allow_html=True)
-                if status_col:
-                    new_data = display_df[display_df['status_type'] == "New"].copy()
-                else:
-                    new_data = display_df.head(new_count).copy()
-                if 'name' in new_data.columns or 'Name' in new_data.columns:
-                    name_col = 'name' if 'name' in new_data.columns else 'Name'
-                    # Find cell/group column
-                    cell_col = None
-                    for col in new_data.columns:
-                        if col.lower().strip() in ['cell', 'group']:
-                            cell_col = col
-                            break
-                    # Find attendance columns
-                    attendance_cols = [col for col in new_data.columns if any(x in col.lower() for x in ['attend', 'present', 'participation'])]
-
-                    names = sorted(new_data[name_col].unique().tolist())
-                    tiles_html = ""
-                    for name in names:
-                        # Get cell for this person
-                        person_cell = ""
-                        if cell_col:
-                            person_row = new_data[new_data[name_col] == name]
-                            if not person_row.empty:
-                                person_cell = person_row[cell_col].iloc[0]
-                        # Get attendance text from attendance_stats
-                        tooltip_text = get_attendance_text(name, person_cell, attendance_stats)
-
-                        tiles_html += f"<span class='member-tile' style='border-color: #3498db;' data-tooltip='{tooltip_text}'>{name}</span> "
-
-                    st.markdown(tiles_html, unsafe_allow_html=True)
-                else:
-                    st.dataframe(new_data, use_container_width=True)
-
-        with col2:
-            if st.button(f"🟢 Regular", key="btn_regular", use_container_width=True):
-                st.session_state.expand_regular = not st.session_state.expand_regular
-            st.markdown(f"""
-            <div class="kpi-card" style="cursor: pointer;">
-                <div class="kpi-label">Regular Members</div>
-                <div class="kpi-number" style="color: #2ecc71;">{regular_pct:.0f}%</div>
-                <div class="kpi-subtitle">{regular_count} members</div>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.session_state.expand_regular:
-                st.markdown(f"<p style='color: #2ecc71; font-weight: 600;'>Regular Members (75% and above attendance)</p>", unsafe_allow_html=True)
-                if status_col:
-                    regular_data = display_df[display_df['status_type'] == "Regular"].copy()
-                else:
-                    regular_data = display_df.iloc[new_count:new_count+regular_count].copy()
-                if 'name' in regular_data.columns or 'Name' in regular_data.columns:
-                    name_col = 'name' if 'name' in regular_data.columns else 'Name'
-                    # Find cell/group column
-                    cell_col = None
-                    for col in regular_data.columns:
-                        if col.lower().strip() in ['cell', 'group']:
-                            cell_col = col
-                            break
-                    # Find attendance columns
-                    attendance_cols = [col for col in regular_data.columns if any(x in col.lower() for x in ['attend', 'present', 'participation'])]
-
-                    names = sorted(regular_data[name_col].unique().tolist())
-                    tiles_html = ""
-                    for name in names:
-                        # Get cell for this person
-                        person_cell = ""
-                        if cell_col:
-                            person_row = regular_data[regular_data[name_col] == name]
-                            if not person_row.empty:
-                                person_cell = person_row[cell_col].iloc[0]
-                        # Get attendance text from attendance_stats
-                        tooltip_text = get_attendance_text(name, person_cell, attendance_stats)
-
-                        tiles_html += f"<span class='member-tile' style='border-color: #2ecc71;' data-tooltip='{tooltip_text}'>{name}</span> "
-
-                    st.markdown(tiles_html, unsafe_allow_html=True)
-                else:
-                    st.dataframe(regular_data, use_container_width=True)
-
-        with col3:
-            if st.button(f"🟠 Irregular", key="btn_irregular", use_container_width=True):
-                st.session_state.expand_irregular = not st.session_state.expand_irregular
-            st.markdown(f"""
-            <div class="kpi-card" style="cursor: pointer;">
-                <div class="kpi-label">Irregular Members</div>
-                <div class="kpi-number" style="color: #e67e22;">{irregular_pct:.0f}%</div>
-                <div class="kpi-subtitle">{irregular_count} members</div>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.session_state.expand_irregular:
-                st.markdown(f"<p style='color: #e67e22; font-weight: 600;'>Irregular Members (Below 75% attendance)</p>", unsafe_allow_html=True)
-                if status_col:
-                    irregular_data = display_df[display_df['status_type'] == "Irregular"].copy()
-                else:
-                    irregular_data = display_df.iloc[new_count+regular_count:new_count+regular_count+irregular_count].copy()
-                if 'name' in irregular_data.columns or 'Name' in irregular_data.columns:
-                    name_col = 'name' if 'name' in irregular_data.columns else 'Name'
-                    # Find cell/group column
-                    cell_col = None
-                    for col in irregular_data.columns:
-                        if col.lower().strip() in ['cell', 'group']:
-                            cell_col = col
-                            break
-                    # Find attendance columns
-                    attendance_cols = [col for col in irregular_data.columns if any(x in col.lower() for x in ['attend', 'present', 'participation'])]
-
-                    names = sorted(irregular_data[name_col].unique().tolist())
-                    tiles_html = ""
-                    for name in names:
-                        # Get cell for this person
-                        person_cell = ""
-                        if cell_col:
-                            person_row = irregular_data[irregular_data[name_col] == name]
-                            if not person_row.empty:
-                                person_cell = person_row[cell_col].iloc[0]
-                        # Get attendance text from attendance_stats
-                        tooltip_text = get_attendance_text(name, person_cell, attendance_stats)
-
-                        tiles_html += f"<span class='member-tile' style='border-color: #e67e22;' data-tooltip='{tooltip_text}'>{name}</span> "
-
-                    st.markdown(tiles_html, unsafe_allow_html=True)
-                else:
-                    st.dataframe(irregular_data, use_container_width=True)
-
-        # Second row - Status breakdown with expandable Follow Up and Red
-        st.markdown("")
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button(f"🟡 Follow Up", key="btn_follow_up", use_container_width=True):
-                st.session_state.expand_follow_up = not st.session_state.expand_follow_up
-            st.markdown(f"""
-            <div class="kpi-card" style="cursor: pointer;">
-                <div class="kpi-label">Follow Up</div>
-                <div class="kpi-number" style="color: #f39c12;">{follow_up_pct:.0f}%</div>
-                <div class="kpi-subtitle">{follow_up_count} members</div>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.session_state.expand_follow_up:
-                st.markdown(f"<p style='color: #f39c12; font-weight: 600;'>Follow Up (0% attendance - past 2 months)</p>", unsafe_allow_html=True)
-                if status_col:
-                    follow_up_data = display_df[display_df['status_type'] == "Follow Up"].copy()
-                else:
-                    follow_up_data = display_df.iloc[new_count+regular_count+irregular_count:new_count+regular_count+irregular_count+follow_up_count].copy()
-                if 'name' in follow_up_data.columns or 'Name' in follow_up_data.columns:
-                    name_col = 'name' if 'name' in follow_up_data.columns else 'Name'
-                    # Find cell/group column
-                    cell_col = None
-                    for col in follow_up_data.columns:
-                        if col.lower().strip() in ['cell', 'group']:
-                            cell_col = col
-                            break
-                    # Find attendance columns
-                    attendance_cols = [col for col in follow_up_data.columns if any(x in col.lower() for x in ['attend', 'present', 'participation'])]
-
-                    names = sorted(follow_up_data[name_col].unique().tolist())
-                    tiles_html = ""
-                    for name in names:
-                        # Get cell for this person
-                        person_cell = ""
-                        if cell_col:
-                            person_row = follow_up_data[follow_up_data[name_col] == name]
-                            if not person_row.empty:
-                                person_cell = person_row[cell_col].iloc[0]
-                        # Get attendance text from attendance_stats
-                        tooltip_text = get_attendance_text(name, person_cell, attendance_stats)
-
-                        tiles_html += f"<span class='member-tile' style='border-color: #f39c12;' data-tooltip='{tooltip_text}'>{name}</span> "
-
-                    st.markdown(tiles_html, unsafe_allow_html=True)
-                else:
-                    st.dataframe(follow_up_data, use_container_width=True)
-
-        with col2:
-            if st.button(f"🔴 Red", key="btn_red", use_container_width=True):
-                st.session_state.expand_red = not st.session_state.expand_red
-            st.markdown(f"""
-            <div class="kpi-card" style="cursor: pointer;">
-                <div class="kpi-label">Red</div>
-                <div class="kpi-number" style="color: #e74c3c;">{red_pct:.0f}%</div>
-                <div class="kpi-subtitle">{red_count} members</div>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.session_state.expand_red:
-                st.markdown(f"<p style='color: #e74c3c; font-weight: 600;'>Red (Won't come to church anymore)</p>", unsafe_allow_html=True)
-                if status_col:
-                    red_data = display_df[display_df['status_type'] == "Red"].copy()
-                else:
-                    red_data = display_df.iloc[new_count+regular_count+irregular_count+follow_up_count:new_count+regular_count+irregular_count+follow_up_count+red_count].copy()
-                if 'name' in red_data.columns or 'Name' in red_data.columns:
-                    name_col = 'name' if 'name' in red_data.columns else 'Name'
-                    # Find cell/group column
-                    cell_col = None
-                    for col in red_data.columns:
-                        if col.lower().strip() in ['cell', 'group']:
-                            cell_col = col
-                            break
-                    # Find attendance columns
-                    attendance_cols = [col for col in red_data.columns if any(x in col.lower() for x in ['attend', 'present', 'participation'])]
-
-                    names = sorted(red_data[name_col].unique().tolist())
-                    tiles_html = ""
-                    for name in names:
-                        # Get cell for this person
-                        person_cell = ""
-                        if cell_col:
-                            person_row = red_data[red_data[name_col] == name]
-                            if not person_row.empty:
-                                person_cell = person_row[cell_col].iloc[0]
-                        # Get attendance text from attendance_stats
-                        tooltip_text = get_attendance_text(name, person_cell, attendance_stats)
-
-                        tiles_html += f"<span class='member-tile' style='border-color: #e74c3c;' data-tooltip='{tooltip_text}'>{name}</span> "
-
-                    st.markdown(tiles_html, unsafe_allow_html=True)
-                else:
-                    st.dataframe(red_data, use_container_width=True)
-
-        # Third row - Graduated
-        st.markdown("")
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button(f"⭐ Graduated", key="btn_graduated", use_container_width=True):
-                st.session_state.expand_graduated = not st.session_state.expand_graduated
-            st.markdown(f"""
-            <div class="kpi-card" style="cursor: pointer;">
-                <div class="kpi-label">Graduated</div>
-                <div class="kpi-number" style="color: #9b59b6;">{graduated_pct:.0f}%</div>
-                <div class="kpi-subtitle">{graduated_count} members</div>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.session_state.expand_graduated:
-                st.markdown(f"<p style='color: #9b59b6; font-weight: 600;'>Graduated (Moved to leadership roles)</p>", unsafe_allow_html=True)
-                if status_col:
-                    graduated_data = display_df[display_df['status_type'] == "Graduated"].copy()
-                else:
-                    graduated_data = display_df.iloc[new_count+regular_count+irregular_count+follow_up_count+red_count:].copy()
-                if 'name' in graduated_data.columns or 'Name' in graduated_data.columns:
-                    name_col = 'name' if 'name' in graduated_data.columns else 'Name'
-                    # Find cell/group column
-                    cell_col = None
-                    for col in graduated_data.columns:
-                        if col.lower().strip() in ['cell', 'group']:
-                            cell_col = col
-                            break
-                    # Find attendance columns
-                    attendance_cols = [col for col in graduated_data.columns if any(x in col.lower() for x in ['attend', 'present', 'participation'])]
-
-                    names = sorted(graduated_data[name_col].unique().tolist())
-                    tiles_html = ""
-                    for name in names:
-                        # Get cell for this person
-                        person_cell = ""
-                        if cell_col:
-                            person_row = graduated_data[graduated_data[name_col] == name]
-                            if not person_row.empty:
-                                person_cell = person_row[cell_col].iloc[0]
-                        # Get attendance text from attendance_stats
-                        tooltip_text = get_attendance_text(name, person_cell, attendance_stats)
-
-                        tiles_html += f"<span class='member-tile' style='border-color: #9b59b6;' data-tooltip='{tooltip_text}'>{name}</span> "
-
-                    st.markdown(tiles_html, unsafe_allow_html=True)
-                else:
-                    st.dataframe(graduated_data, use_container_width=True)
-
-        st.markdown("")
-    else:
+    if display_df.empty:
         st.info("No cell health data available.")
+        return
+
+    work_df = display_df.copy()
+    status_columns = [col for col in work_df.columns if "status" in col.lower()]
+    status_col = status_columns[0] if status_columns else None
+
+    if status_col:
+        work_df["status_type"] = work_df[status_col].apply(extract_cell_sheet_status_type)
+        new_count = len(work_df[work_df["status_type"] == "New"])
+        regular_count = len(work_df[work_df["status_type"] == "Regular"])
+        irregular_count = len(work_df[work_df["status_type"] == "Irregular"])
+        follow_up_count = len(work_df[work_df["status_type"] == "Follow Up"])
+        red_count = len(work_df[work_df["status_type"] == "Red"])
+        graduated_count = len(work_df[work_df["status_type"] == "Graduated"])
+    else:
+        total_members = len(work_df)
+        new_count = max(1, int(total_members * 0.20))
+        regular_count = max(1, int(total_members * 0.40))
+        irregular_count = max(1, int(total_members * 0.20))
+        follow_up_count = max(1, int(total_members * 0.10))
+        red_count = max(1, int(total_members * 0.05))
+        graduated_count = total_members - new_count - regular_count - irregular_count - follow_up_count - red_count
+
+    total_members = new_count + regular_count + irregular_count + follow_up_count + red_count + graduated_count
+
+    live_counts = {
+        "new": new_count,
+        "regular": regular_count,
+        "irregular": irregular_count,
+        "follow_up": follow_up_count,
+        "red": red_count,
+        "graduated": graduated_count,
+    }
+
+    hist_df = load_historical_cell_status_dataframe()
+    curr_agg, prev_agg, snap_curr, snap_prev = (None, None, None, None)
+    if hist_df is not None and not hist_df.empty:
+        curr_agg, prev_agg, snap_curr, snap_prev = _nwst_hist_cell_wow_for_scope(hist_df, cell_filter)
+
+    scope_lbl = html.escape(str(cell_filter), quote=True) if cell_filter and str(cell_filter).strip().lower() != "all" else "All cells"
+    if snap_curr:
+        snap_line = f"Log baseline: <b>{html.escape(str(snap_curr), quote=True)}</b>"
+        if snap_prev:
+            snap_line += f" vs <b>{html.escape(str(snap_prev), quote=True)}</b>"
+    else:
+        snap_line = "Add rows to <b>Historical Cell Status</b> (Apps Script log) for WoW."
+
+    st.markdown(
+        f"""
+<style>
+  .ch-head {{
+    font-family: 'Inter', sans-serif;
+    font-weight: 900;
+    font-size: 1.25rem;
+    color: {prim};
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin: 0 0 0.25rem 0;
+    text-shadow: 0 0 18px {prim};
+  }}
+  .ch-sub {{
+    font-family: 'Inter', sans-serif;
+    font-size: 0.82rem;
+    color: #999;
+    margin: 0 0 1rem 0;
+  }}
+  .ch-wow-grid {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    margin-bottom: 0.5rem;
+  }}
+  .ch-wow-tile {{
+    flex: 1 1 140px;
+    min-width: 128px;
+    background: #111;
+    border: 2px solid {prim};
+    border-radius: 0;
+    padding: 0.65rem 0.75rem 0.75rem;
+    box-shadow: 0 0 22px rgba(0,0,0,0.55), 0 0 18px rgba({_pr},{_pg},{_pb},0.28);
+  }}
+  .ch-wow-label {{
+    font-family: 'Inter', sans-serif;
+    font-size: 0.68rem;
+    font-weight: 800;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.35rem;
+  }}
+  .ch-wow-pct {{
+    font-family: 'Inter', sans-serif;
+    font-size: 2.1rem;
+    font-weight: 900;
+    line-height: 1;
+    margin: 0;
+  }}
+  .ch-wow-n {{
+    font-family: 'Inter', sans-serif;
+    font-size: 0.78rem;
+    color: #bbb;
+    margin: 0.35rem 0 0.15rem;
+  }}
+  .ch-wow-delta {{
+    font-family: 'Inter', sans-serif;
+    font-size: 0.88rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    margin-top: 0.2rem;
+  }}
+</style>
+<p class="ch-head">Cell health mix</p>
+<p class="ch-sub">Scope: {scope_lbl} · Live roster from CG Combined. {snap_line}</p>
+<div class="ch-wow-grid">
+""",
+        unsafe_allow_html=True,
+    )
+
+    tiles_spec = [
+        ("new", "New", "#3498db"),
+        ("regular", "Regular", "#2ecc71"),
+        ("irregular", "Irregular", "#e67e22"),
+        ("follow_up", "Follow Up", "#f39c12"),
+        ("red", "Red", "#e74c3c"),
+        ("graduated", "Graduated", "#9b59b6"),
+    ]
+
+    tile_html_parts = []
+    for key, label, accent in tiles_spec:
+        n_live = live_counts[key]
+        pct = (100.0 * n_live / total_members) if total_members > 0 else 0.0
+        d_mem = None
+        d_pp = None
+        if curr_agg and prev_agg:
+            c = _agg_n(curr_agg, key)
+            p = _agg_n(prev_agg, key)
+            d_mem = c - p
+            tot_c = _agg_n(curr_agg, "total")
+            tot_p = _agg_n(prev_agg, "total")
+            if tot_p > 0 and tot_c > 0:
+                d_pp = (100.0 * c / tot_c) - (100.0 * p / tot_p)
+
+        if curr_agg and prev_agg and d_mem is not None and d_pp is not None:
+            dc = _nwst_cell_health_wow_color_for_delta(key, d_mem)
+            sign_m = "+" if d_mem > 0 else ""
+            sign_p = "+" if d_pp > 0 else ""
+            delta_line = (
+                f'<p class="ch-wow-delta" style="color:{dc};">'
+                f"{sign_m}{d_mem} vs last log · mix {sign_p}{d_pp:.1f}pp</p>"
+            )
+        else:
+            delta_line = '<p class="ch-wow-delta" style="color:#666;">— WoW (need 2 snapshots in log)</p>'
+
+        tile_html_parts.append(
+            f"""
+<div class="ch-wow-tile">
+  <div class="ch-wow-label">{html.escape(label, quote=True)}</div>
+  <p class="ch-wow-pct" style="color:{accent};">{pct:.0f}%</p>
+  <p class="ch-wow-n">{n_live} members</p>
+  {delta_line}
+</div>
+"""
+        )
+
+    st.markdown("".join(tile_html_parts) + "</div>", unsafe_allow_html=True)
+
+    with st.expander("Names by status (optional)", expanded=False):
+        if not status_col:
+            st.caption("No Status column — name lists unavailable.")
+        else:
+            name_col = "name" if "name" in work_df.columns else ("Name" if "Name" in work_df.columns else None)
+            if not name_col:
+                st.dataframe(work_df, use_container_width=True)
+            else:
+                cell_col = None
+                for col in work_df.columns:
+                    if col.lower().strip() in ("cell", "group"):
+                        cell_col = col
+                        break
+                for label, stype in [
+                    ("New", "New"),
+                    ("Regular", "Regular"),
+                    ("Irregular", "Irregular"),
+                    ("Follow Up", "Follow Up"),
+                    ("Red", "Red"),
+                    ("Graduated", "Graduated"),
+                ]:
+                    sub = work_df[work_df["status_type"] == stype]
+                    if sub.empty:
+                        continue
+                    st.markdown(f"**{label}**")
+                    names = sorted(sub[name_col].dropna().astype(str).unique().tolist(), key=str.lower)
+                    tiles_html = ""
+                    for nm in names:
+                        person_cell = ""
+                        if cell_col:
+                            pr = sub[sub[name_col] == nm]
+                            if not pr.empty:
+                                person_cell = pr[cell_col].iloc[0]
+                        tip = html.escape(get_attendance_text(nm, person_cell, attendance_stats), quote=True)
+                        tiles_html += (
+                            f"<span class='member-tile' style='border-color: {prim};' "
+                            f"data-tooltip='{tip}'>{html.escape(nm, quote=True)}</span> "
+                        )
+                    st.markdown(tiles_html, unsafe_allow_html=True)
+                    st.markdown("")
 
 
 def _render_cg_detailed_members_section(display_df, daily_colors):
@@ -794,6 +706,154 @@ def load_status_historical_dataframe():
         return None
     except Exception:
         return None
+
+
+@st.cache_data(ttl=300)
+def load_historical_cell_status_dataframe():
+    """Load **Historical Cell Status** tab (per-cell snapshots + WoW columns from NWST script)."""
+    client = get_google_sheet_client()
+    if not client:
+        return None
+    try:
+        spreadsheet = client.open_by_key(NWST_HEALTH_SHEET_ID)
+        ws = spreadsheet.worksheet(NWST_HISTORICAL_CELL_STATUS_TAB)
+        data = ws.get_all_values()
+        if not data or len(data) < 2:
+            return None
+        return pd.DataFrame(data[1:], columns=data[0])
+    except WorksheetNotFound:
+        return None
+    except Exception:
+        return None
+
+
+def _nwst_hist_cell_col_lookup(df):
+    """Map normalized header → actual column name (strip/lower)."""
+    return {str(c).strip().lower(): c for c in df.columns}
+
+
+def _nwst_hist_cell_get_col(lk, *names):
+    for n in names:
+        k = n.strip().lower()
+        if k in lk:
+            return lk[k]
+    return None
+
+
+def _nwst_hist_cell_parse_snapshot_dates(df):
+    lk = _nwst_hist_cell_col_lookup(df)
+    snap_c = _nwst_hist_cell_get_col(lk, "snapshot date", "snapshot")
+    if not snap_c:
+        return None
+    s = pd.to_datetime(df[snap_c], errors="coerce")
+    dates = sorted(s.dropna().unique(), reverse=True)
+    return [pd.Timestamp(d).date() if hasattr(d, "date") else d for d in dates]
+
+
+def _nwst_hist_cell_rows_for_scope(df, cell_filter):
+    """Filter log rows: All = every row; else match Cell (long) or Tab (short) fallback."""
+    if df is None or df.empty:
+        return df
+    lk = _nwst_hist_cell_col_lookup(df)
+    cell_c = _nwst_hist_cell_get_col(lk, "cell")
+    tab_c = _nwst_hist_cell_get_col(lk, "tab")
+    snap_c = _nwst_hist_cell_get_col(lk, "snapshot date", "snapshot")
+    if not snap_c:
+        return df.iloc[0:0]
+
+    out = df.copy()
+    out["_snap_parsed"] = pd.to_datetime(out[snap_c], errors="coerce")
+    out = out[out["_snap_parsed"].notna()]
+
+    if cell_filter and str(cell_filter).strip() and str(cell_filter).strip().lower() != "all":
+        cf = str(cell_filter).strip()
+        mask = pd.Series(False, index=out.index)
+        if cell_c:
+            mask = mask | (out[cell_c].astype(str).str.strip() == cf)
+        short = _NWST_CELL_DISPLAY_TO_TAB.get(cf)
+        if short and tab_c:
+            mask = mask | (out[tab_c].astype(str).str.strip() == short)
+        out = out[mask]
+    return out
+
+
+def _nwst_hist_cell_aggregate_counts(sub_df):
+    """Sum numeric bucket columns for snapshot rows in `sub_df` (already scoped + same snapshot)."""
+    if sub_df is None or sub_df.empty:
+        return None
+    lk = _nwst_hist_cell_col_lookup(sub_df)
+    buckets = [
+        ("total", ["total"]),
+        ("new", ["new"]),
+        ("regular", ["regular"]),
+        ("irregular", ["irregular"]),
+        ("follow up", ["follow up", "follow_up", "followup"]),
+        ("red", ["red"]),
+        ("graduated", ["graduated"]),
+        ("duplicate", ["duplicate"]),
+        ("other", ["other"]),
+    ]
+    agg = {}
+    for canon, aliases in buckets:
+        coln = None
+        for a in aliases:
+            coln = _nwst_hist_cell_get_col(lk, a)
+            if coln:
+                break
+        if not coln:
+            agg[canon] = 0
+        else:
+            agg[canon] = int(pd.to_numeric(sub_df[coln], errors="coerce").fillna(0).sum())
+    return agg
+
+
+def _nwst_hist_cell_wow_for_scope(hist_df, cell_filter):
+    """Return (curr_agg, prev_agg, snap_curr, snap_prev) from latest two snapshot dates; may be partial."""
+    if hist_df is None or hist_df.empty:
+        return None, None, None, None
+    scoped = _nwst_hist_cell_rows_for_scope(hist_df, cell_filter)
+    if scoped is None or scoped.empty:
+        return None, None, None, None
+    lk = _nwst_hist_cell_col_lookup(scoped)
+    snap_c = _nwst_hist_cell_get_col(lk, "snapshot date", "snapshot")
+    if not snap_c:
+        return None, None, None, None
+
+    dates = _nwst_hist_cell_parse_snapshot_dates(scoped)
+    if not dates:
+        return None, None, None, None
+
+    snap_curr = dates[0]
+    snap_prev = dates[1] if len(dates) > 1 else None
+
+    def _norm_snap(val):
+        t = pd.to_datetime(val, errors="coerce")
+        if pd.isna(t):
+            return None
+        return t.date()
+
+    scoped = scoped.copy()
+    scoped["_d"] = scoped[snap_c].map(_norm_snap)
+    curr_sub = scoped[scoped["_d"] == snap_curr]
+    curr = _nwst_hist_cell_aggregate_counts(curr_sub)
+    prev = None
+    if snap_prev is not None:
+        prev_sub = scoped[scoped["_d"] == snap_prev]
+        prev = _nwst_hist_cell_aggregate_counts(prev_sub)
+    return curr, prev, snap_curr, snap_prev
+
+
+def _nwst_cell_health_wow_color_for_delta(bucket_key, delta_n):
+    """Regular: down = bad (red). Risk buckets + New: down = good (green)."""
+    if delta_n is None or (isinstance(delta_n, float) and pd.isna(delta_n)) or delta_n == 0:
+        return "#aaaaaa"
+    if bucket_key == "regular":
+        return "#2ecc71" if delta_n > 0 else "#e74c3c"
+    if bucket_key == "graduated":
+        return "#2ecc71" if delta_n > 0 else "#e74c3c"
+    if bucket_key == "new":
+        return "#e74c3c" if delta_n > 0 else "#2ecc71"
+    return "#2ecc71" if delta_n < 0 else "#e74c3c"
 
 
 def _nwst_normalize_member_name(s):
@@ -3712,10 +3772,8 @@ if current_page == "cg":
                 if status_columns:
                     display_df = display_df[display_df[status_columns[0]] == status_filter]
 
-            # CELL HEALTH SECTION
-            st.markdown(_nwst_collapsible_section_css(daily_colors["primary"]), unsafe_allow_html=True)
-            with st.expander("🏥 CELL HEALTH", expanded=False):
-                _render_cg_cell_health_section(display_df, daily_colors, attendance_stats)
+            # CELL HEALTH — quick view (Historical Cell Status WoW + live CG Combined mix)
+            _render_cg_cell_health_section(display_df, daily_colors, attendance_stats, cell_filter)
 
             with st.expander("👤 INDIVIDUAL ATTENDANCE", expanded=False):
                 if not display_df.empty:
