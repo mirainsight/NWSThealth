@@ -403,15 +403,55 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
     margin: 0.12rem 0 0.02rem 0;
     line-height: 1.25;
   }}
-  .ch-delta {{
-    font-family: 'Inter', sans-serif;
-    font-size: 0.56rem;
-    font-weight: 400;
-    letter-spacing: 0.01em;
-    margin: 0.05rem 0 0 0;
-    line-height: 1.2;
-    word-break: break-word;
+  .ch-pill-wrap {{
+    margin-top: 0.12rem;
+    line-height: 1;
     max-width: 100%;
+  }}
+  .ch-pill {{
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.14rem 0.42rem 0.15rem;
+    border-radius: 9999px;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.52rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }}
+  .ch-pill-good {{
+    background: #153729;
+    color: #5eead4;
+    box-shadow: 0 0 14px rgba(94, 234, 212, 0.22);
+    text-shadow: 0 0 10px rgba(94, 234, 212, 0.35);
+  }}
+  .ch-pill-bad {{
+    background: #351a22;
+    color: #fda4af;
+    box-shadow: 0 0 12px rgba(253, 164, 175, 0.18);
+    text-shadow: 0 0 8px rgba(253, 164, 175, 0.3);
+  }}
+  .ch-pill-flat {{
+    background: #2a2a2a;
+    color: #c6c6c6;
+    font-weight: 500;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+  }}
+  .ch-pill-na {{
+    background: #252525;
+    color: #888;
+    font-weight: 400;
+    white-space: normal;
+  }}
+  .ch-pill-arrow {{
+    font-size: 0.68em;
+    font-weight: 700;
+    line-height: 1;
+    opacity: 0.95;
   }}
 </style>
 <p class="ch-head">Cell health mix</p>
@@ -434,29 +474,41 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
                 d_pp = (100.0 * c / tot_c) - (100.0 * p / tot_p)
 
         if curr_agg and prev_agg and d_mem is not None and d_pp is not None:
-            neu = "#e8e8e8"
-            if d_mem == 0:
-                mem_line = "0 vs last log"
-                c_mem = neu
+            pp_sh = float(d_pp)
+            pp_str = f"{pp_sh:+.1f}%"
+            mem_str = f"{d_mem:+d}"
+            bubble_txt = html.escape(f"{mem_str} ({pp_str})", quote=True)
+            flat = d_mem == 0 and abs(pp_sh) < 0.05
+            if flat:
+                arrow = "·"
+                pill_cls = "ch-pill-flat"
+            elif d_mem == 0:
+                arrow = "·"
+                tone = _nwst_cell_health_wow_color_for_delta(key, pp_sh)
+                if tone == "#2ecc71":
+                    pill_cls = "ch-pill-good"
+                elif tone == "#e74c3c":
+                    pill_cls = "ch-pill-bad"
+                else:
+                    pill_cls = "ch-pill-flat"
             else:
-                sign_m = "+" if d_mem > 0 else ""
-                mem_line = f"{sign_m}{d_mem} vs last log"
-                c_mem = _nwst_cell_health_wow_color_for_delta(key, d_mem)
-            if abs(float(d_pp)) < 0.05:
-                mix_line = "mix 0.0pp"
-                c_pp = neu
-            else:
-                sign_p = "+" if d_pp > 0 else ""
-                mix_line = f"mix {sign_p}{d_pp:.1f}pp"
-                c_pp = _nwst_cell_health_wow_color_for_delta(key, d_pp)
+                arrow = "↑" if d_mem > 0 else "↓"
+                tone = _nwst_cell_health_wow_color_for_delta(key, d_mem)
+                if tone == "#2ecc71":
+                    pill_cls = "ch-pill-good"
+                elif tone == "#e74c3c":
+                    pill_cls = "ch-pill-bad"
+                else:
+                    pill_cls = "ch-pill-flat"
             delta_html = (
-                f'<p class="ch-delta" style="color:{html.escape(c_mem, quote=True)};">{html.escape(mem_line, quote=True)}</p>'
-                f'<p class="ch-delta" style="color:{html.escape(c_pp, quote=True)};">{html.escape(mix_line, quote=True)}</p>'
+                f'<div class="ch-pill-wrap"><span class="ch-pill {pill_cls}">'
+                f'<span class="ch-pill-arrow">{html.escape(arrow, quote=True)}</span>'
+                f"<span>{bubble_txt}</span>"
+                f"</span></div>"
             )
         else:
             delta_html = (
-                '<p class="ch-delta" style="color:#666;">— need 2 log</p>'
-                '<p class="ch-delta" style="color:#666;">snapshots</p>'
+                '<div class="ch-pill-wrap"><span class="ch-pill ch-pill-na">Need 2 log snapshots</span></div>'
             )
 
         accent_e = html.escape(accent, quote=True)
