@@ -289,8 +289,8 @@ def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats):
             if st.button(f"🔵 New", key="btn_new", use_container_width=True):
                 st.session_state.expand_new = not st.session_state.expand_new
             st.markdown(f"""
-            <div class="kpi-card" style="cursor: pointer;">
-                <div class="kpi-label">New Members</div>
+            <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
+                <div class="kpi-label">New</div>
                 <div class="kpi-number" style="color: #3498db;">{new_pct:.0f}%</div>
                 <div class="kpi-subtitle">{new_count} members</div>
             </div>
@@ -334,8 +334,8 @@ def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats):
             if st.button(f"🟢 Regular", key="btn_regular", use_container_width=True):
                 st.session_state.expand_regular = not st.session_state.expand_regular
             st.markdown(f"""
-            <div class="kpi-card" style="cursor: pointer;">
-                <div class="kpi-label">Regular Members</div>
+            <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
+                <div class="kpi-label">Regular</div>
                 <div class="kpi-number" style="color: #2ecc71;">{regular_pct:.0f}%</div>
                 <div class="kpi-subtitle">{regular_count} members</div>
             </div>
@@ -379,8 +379,8 @@ def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats):
             if st.button(f"🟠 Irregular", key="btn_irregular", use_container_width=True):
                 st.session_state.expand_irregular = not st.session_state.expand_irregular
             st.markdown(f"""
-            <div class="kpi-card" style="cursor: pointer;">
-                <div class="kpi-label">Irregular Members</div>
+            <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
+                <div class="kpi-label">Irregular</div>
                 <div class="kpi-number" style="color: #e67e22;">{irregular_pct:.0f}%</div>
                 <div class="kpi-subtitle">{irregular_count} members</div>
             </div>
@@ -420,15 +420,14 @@ def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats):
                 else:
                     st.dataframe(irregular_data, use_container_width=True)
 
-        # Second row - Status breakdown with expandable Follow Up and Red
-        st.markdown("")
-        col1, col2 = st.columns(2)
+        # Second row — same 3-column width as top row (compact grid)
+        col4, col5, col6 = st.columns(3)
 
-        with col1:
+        with col4:
             if st.button(f"🟡 Follow Up", key="btn_follow_up", use_container_width=True):
                 st.session_state.expand_follow_up = not st.session_state.expand_follow_up
             st.markdown(f"""
-            <div class="kpi-card" style="cursor: pointer;">
+            <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
                 <div class="kpi-label">Follow Up</div>
                 <div class="kpi-number" style="color: #f39c12;">{follow_up_pct:.0f}%</div>
                 <div class="kpi-subtitle">{follow_up_count} members</div>
@@ -469,11 +468,11 @@ def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats):
                 else:
                     st.dataframe(follow_up_data, use_container_width=True)
 
-        with col2:
+        with col5:
             if st.button(f"🔴 Red", key="btn_red", use_container_width=True):
                 st.session_state.expand_red = not st.session_state.expand_red
             st.markdown(f"""
-            <div class="kpi-card" style="cursor: pointer;">
+            <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
                 <div class="kpi-label">Red</div>
                 <div class="kpi-number" style="color: #e74c3c;">{red_pct:.0f}%</div>
                 <div class="kpi-subtitle">{red_count} members</div>
@@ -514,15 +513,11 @@ def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats):
                 else:
                     st.dataframe(red_data, use_container_width=True)
 
-        # Third row - Graduated
-        st.markdown("")
-        col1, col2 = st.columns(2)
-
-        with col1:
+        with col6:
             if st.button(f"⭐ Graduated", key="btn_graduated", use_container_width=True):
                 st.session_state.expand_graduated = not st.session_state.expand_graduated
             st.markdown(f"""
-            <div class="kpi-card" style="cursor: pointer;">
+            <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
                 <div class="kpi-label">Graduated</div>
                 <div class="kpi-number" style="color: #9b59b6;">{graduated_pct:.0f}%</div>
                 <div class="kpi-subtitle">{graduated_count} members</div>
@@ -563,7 +558,6 @@ def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats):
                 else:
                     st.dataframe(graduated_data, use_container_width=True)
 
-        st.markdown("")
     else:
         st.info("No cell health data available.")
 
@@ -3161,6 +3155,35 @@ st.markdown(f"""
         margin-top: 0.5rem;
     }}
 
+    /* Compact Cell Health metric tiles (smaller footprint, denser grid) */
+    .kpi-card.kpi-card--cell-health {{
+        padding: 0.65rem 0.9rem !important;
+        min-height: 0 !important;
+        margin-bottom: 0.5rem !important;
+        border-left-width: 4px !important;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.28) !important;
+    }}
+    .kpi-card.kpi-card--cell-health:hover {{
+        transform: translateY(-2px) !important;
+        box-shadow: 0 5px 16px rgba(0, 0, 0, 0.42) !important;
+        border-left-width: 5px !important;
+    }}
+    .kpi-card.kpi-card--cell-health .kpi-label {{
+        font-size: 0.62rem !important;
+        letter-spacing: 1px !important;
+        margin-bottom: 0.15rem !important;
+    }}
+    .kpi-card.kpi-card--cell-health .kpi-number {{
+        font-size: 1.85rem !important;
+        font-weight: 800 !important;
+        margin: 0.1rem 0 !important;
+        text-shadow: 0 0 10px rgba({primary_rgb[0]}, {primary_rgb[1]}, {primary_rgb[2]}, 0.22) !important;
+    }}
+    .kpi-card.kpi-card--cell-health .kpi-subtitle {{
+        font-size: 0.68rem !important;
+        margin-top: 0.1rem !important;
+    }}
+
     /* Mobile responsive - smaller cards on small screens */
     @media (max-width: 768px) {{
         .kpi-card {{
@@ -3180,6 +3203,9 @@ st.markdown(f"""
         .kpi-subtitle {{
             font-size: 0.7rem;
             margin-top: 0.25rem;
+        }}
+        .kpi-card.kpi-card--cell-health .kpi-number {{
+            font-size: 1.5rem !important;
         }}
     }}
 
