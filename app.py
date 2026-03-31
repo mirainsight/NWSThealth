@@ -273,32 +273,30 @@ def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "c
             "Tap a colored tile to filter **Individual Attendance** below. Tap the **same** tile again to clear that filter, or use **Clear All** in that section."
         )
         _ch_active = st.session_state.get("cg_cell_health_tile_filter")
+        # Solid brights (flat fills) + dark text only where needed for contrast.
         _ch_tiles = [
-            ("New", "🔵", new_pct, new_count, "#5dade2", "#1a5276", "#ffffff"),
-            ("Regular", "🟢", regular_pct, regular_count, "#58d68d", "#196f3d", "#ffffff"),
-            ("Irregular", "🟠", irregular_pct, irregular_count, "#f0b27a", "#a04000", "#ffffff"),
-            ("Follow Up", "🟡", follow_up_pct, follow_up_count, "#f7dc6f", "#b9770e", "#1a1a1a"),
-            ("Red", "🔴", red_pct, red_count, "#f1948a", "#922b21", "#ffffff"),
-            ("Graduated", "⭐", graduated_pct, graduated_count, "#af7ac5", "#6c3483", "#ffffff"),
+            ("New", new_pct, new_count, "#2979FF", "#FFFFFF"),
+            ("Regular", regular_pct, regular_count, "#00E676", "#0D1F14"),
+            ("Irregular", irregular_pct, irregular_count, "#FF9100", "#1A0D00"),
+            ("Follow Up", follow_up_pct, follow_up_count, "#FFEA00", "#141400"),
+            ("Red", red_pct, red_count, "#FF1744", "#FFFFFF"),
+            ("Graduated", graduated_pct, graduated_count, "#D500F9", "#FFFFFF"),
         ]
         for _row in range(2):
             _cols = st.columns(3)
             for _ci, _col in enumerate(_cols):
-                _cat, _em, _pct, _cnt, _gt, _gb, _tc = _ch_tiles[_row * 3 + _ci]
+                _cat, _pct, _cnt, _bg, _tc = _ch_tiles[_row * 3 + _ci]
                 with _col:
-                    st.markdown(
+                    st.html(
                         _nwst_cell_health_tile_html(
                             page_slug,
                             _cat,
-                            _em,
                             _pct,
                             _cnt,
-                            _gt,
-                            _gb,
+                            _bg,
                             _tc,
                             _ch_active == _cat,
-                        ),
-                        unsafe_allow_html=True,
+                        )
                     )
 
         if _ch_active:
@@ -1391,30 +1389,33 @@ def _nwst_cell_health_tile_href(page_slug: str, category: str) -> str:
 def _nwst_cell_health_tile_html(
     page_slug: str,
     category: str,
-    emoji: str,
     pct: float,
     count: int,
-    grad_top: str,
-    grad_bot: str,
+    bg: str,
     text_color: str,
     active: bool,
 ) -> str:
+    """Single flat tile (``st.html``): solid fill, squarish, minimal markup so Streamlit won’t fragment it."""
     href = _nwst_cell_health_tile_href(page_slug, category)
-    ring = (
-        "box-shadow:0 0 0 3px #ffffff,0 6px 22px rgba(0,0,0,0.45);"
-        if active
-        else "box-shadow:0 4px 16px rgba(0,0,0,0.35);"
-    )
-    cat_esc = html.escape(category)
+    cat_esc = html.escape(category.upper())
+    # Neo-brutalist: flat color, tight radius, hard offset shadow (no glossy gradient).
+    if active:
+        extra = "outline:3px solid #ffffff;outline-offset:2px;"
+        shadow = "box-shadow:5px 5px 0 #000000;"
+    else:
+        extra = ""
+        shadow = "box-shadow:4px 4px 0 #000000;"
     return (
-        f'<a href="{html.escape(href)}" style="display:block;text-decoration:none;'
-        f"color:{text_color};background:linear-gradient(155deg,{grad_top},{grad_bot});"
-        f"border-radius:14px;padding:14px 12px;margin-bottom:10px;text-align:center;"
-        f"font-family:Inter,system-ui,sans-serif;{ring}\">"
-        f'<div style="font-weight:800;font-size:1rem;line-height:1.35">{emoji} '
-        f"<b>{cat_esc}</b> · <b>{pct:.0f}%</b></div>"
-        f'<div style="opacity:0.92;font-size:0.85rem;font-style:italic;margin-top:6px">'
-        f"{count} members</div></a>"
+        f'<a href="{html.escape(href)}" style="display:block;box-sizing:border-box;'
+        f"text-decoration:none;color:{text_color};background:{bg};"
+        "border:2px solid #000000;border-radius:6px;padding:14px 10px;margin-bottom:10px;"
+        "text-align:center;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;"
+        "font-weight:800;font-size:0.95rem;line-height:1.25;letter-spacing:0.04em;"
+        f"{shadow}{extra}\">"
+        f'<span style="font-size:1.05rem">{cat_esc}</span>'
+        f' <span style="opacity:0.92">· {pct:.0f}%</span><br/>'
+        f'<span style="display:inline-block;margin-top:6px;font-size:0.78rem;font-weight:600;'
+        f"opacity:0.92;letter-spacing:0.02em\">{count} members</span></a>"
     )
 
 
