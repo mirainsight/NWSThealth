@@ -231,35 +231,35 @@ def _render_cg_leadership_section(display_df, cell_filter, cell_columns, daily_c
         st.info("No leadership data available.")
 
 
-def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats):
-    """Content for CG Health > Cell Health collapsible."""
+def _render_cg_cell_health_section(display_df, daily_colors):
+    """Content for CG Health > Cell Health collapsible. Tiles set ``cg_cell_health_tile_filter`` for Individual Attendance."""
     if not display_df.empty:
-        # Find status column
-        status_columns = [col for col in display_df.columns if 'status' in col.lower()]
+        status_columns = [col for col in display_df.columns if "status" in col.lower()]
         status_col = status_columns[0] if status_columns else None
 
-        # Calculate counts by status - extracting the prefix from the descriptive status
+        work = display_df.copy()
         if status_col:
-            # Create a mapped status column (same rules as Monthly Health _tile_status)
-            display_df['status_type'] = display_df[status_col].apply(extract_cell_sheet_status_type)
-
-            new_count = len(display_df[display_df['status_type'] == "New"])
-            regular_count = len(display_df[display_df['status_type'] == "Regular"])
-            irregular_count = len(display_df[display_df['status_type'] == "Irregular"])
-            follow_up_count = len(display_df[display_df['status_type'] == "Follow Up"])
-            red_count = len(display_df[display_df['status_type'] == "Red"])
-            graduated_count = len(display_df[display_df['status_type'] == "Graduated"])
+            work["status_type"] = work[status_col].apply(extract_cell_sheet_status_type)
+            new_count = len(work[work["status_type"] == "New"])
+            regular_count = len(work[work["status_type"] == "Regular"])
+            irregular_count = len(work[work["status_type"] == "Irregular"])
+            follow_up_count = len(work[work["status_type"] == "Follow Up"])
+            red_count = len(work[work["status_type"] == "Red"])
+            graduated_count = len(work[work["status_type"] == "Graduated"])
         else:
-            # Fallback if no status column
-            total_members = len(display_df)
+            total_members = len(work)
             new_count = max(1, int(total_members * 0.20))
             regular_count = max(1, int(total_members * 0.40))
             irregular_count = max(1, int(total_members * 0.20))
             follow_up_count = max(1, int(total_members * 0.10))
             red_count = max(1, int(total_members * 0.05))
-            graduated_count = total_members - new_count - regular_count - irregular_count - follow_up_count - red_count
+            graduated_count = (
+                total_members - new_count - regular_count - irregular_count - follow_up_count - red_count
+            )
 
-        total_members = new_count + regular_count + irregular_count + follow_up_count + red_count + graduated_count
+        total_members = (
+            new_count + regular_count + irregular_count + follow_up_count + red_count + graduated_count
+        )
 
         regular_pct = (regular_count / total_members * 100) if total_members > 0 else 0
         irregular_pct = (irregular_count / total_members * 100) if total_members > 0 else 0
@@ -268,296 +268,104 @@ def _render_cg_cell_health_section(display_df, daily_colors, attendance_stats):
         red_pct = (red_count / total_members * 100) if total_members > 0 else 0
         graduated_pct = (graduated_count / total_members * 100) if total_members > 0 else 0
 
-        # Member status row - make clickable to expand details
+        st.caption(
+            "Click a category to filter **Individual Attendance** below. Click the same category again to clear the status filter."
+        )
+
         col1, col2, col3 = st.columns(3)
 
-        # Initialize session state for expanded states
-        if 'expand_new' not in st.session_state:
-            st.session_state.expand_new = False
-        if 'expand_regular' not in st.session_state:
-            st.session_state.expand_regular = False
-        if 'expand_irregular' not in st.session_state:
-            st.session_state.expand_irregular = False
-        if 'expand_follow_up' not in st.session_state:
-            st.session_state.expand_follow_up = False
-        if 'expand_red' not in st.session_state:
-            st.session_state.expand_red = False
-        if 'expand_graduated' not in st.session_state:
-            st.session_state.expand_graduated = False
-
         with col1:
-            if st.button(f"🔵 New", key="btn_new", use_container_width=True):
-                st.session_state.expand_new = not st.session_state.expand_new
-            st.markdown(f"""
+            if st.button("🔵 New", key="btn_new", use_container_width=True):
+                _toggle_cg_cell_health_tile_filter("New")
+            st.markdown(
+                f"""
             <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
                 <div class="kpi-label">New</div>
                 <div class="kpi-number" style="color: #3498db;">{new_pct:.0f}%</div>
                 <div class="kpi-subtitle">{new_count} members</div>
             </div>
-            """, unsafe_allow_html=True)
-            if st.session_state.expand_new:
-                st.markdown(f"<p style='color: #3498db; font-weight: 600;'>New Members</p>", unsafe_allow_html=True)
-                if status_col:
-                    new_data = display_df[display_df['status_type'] == "New"].copy()
-                else:
-                    new_data = display_df.head(new_count).copy()
-                if 'name' in new_data.columns or 'Name' in new_data.columns:
-                    name_col = 'name' if 'name' in new_data.columns else 'Name'
-                    # Find cell/group column
-                    cell_col = None
-                    for col in new_data.columns:
-                        if col.lower().strip() in ['cell', 'group']:
-                            cell_col = col
-                            break
-                    # Find attendance columns
-                    attendance_cols = [col for col in new_data.columns if any(x in col.lower() for x in ['attend', 'present', 'participation'])]
-
-                    names = sorted(new_data[name_col].unique().tolist())
-                    tiles_html = ""
-                    for name in names:
-                        # Get cell for this person
-                        person_cell = ""
-                        if cell_col:
-                            person_row = new_data[new_data[name_col] == name]
-                            if not person_row.empty:
-                                person_cell = person_row[cell_col].iloc[0]
-                        # Get attendance text from attendance_stats
-                        tooltip_text = get_attendance_text(name, person_cell, attendance_stats)
-
-                        tiles_html += f"<span class='member-tile' style='border-color: #3498db;' data-tooltip='{tooltip_text}'>{name}</span> "
-
-                    st.markdown(tiles_html, unsafe_allow_html=True)
-                else:
-                    st.dataframe(new_data, use_container_width=True)
+            """,
+                unsafe_allow_html=True,
+            )
 
         with col2:
-            if st.button(f"🟢 Regular", key="btn_regular", use_container_width=True):
-                st.session_state.expand_regular = not st.session_state.expand_regular
-            st.markdown(f"""
+            if st.button("🟢 Regular", key="btn_regular", use_container_width=True):
+                _toggle_cg_cell_health_tile_filter("Regular")
+            st.markdown(
+                f"""
             <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
                 <div class="kpi-label">Regular</div>
                 <div class="kpi-number" style="color: #2ecc71;">{regular_pct:.0f}%</div>
                 <div class="kpi-subtitle">{regular_count} members</div>
             </div>
-            """, unsafe_allow_html=True)
-            if st.session_state.expand_regular:
-                st.markdown(f"<p style='color: #2ecc71; font-weight: 600;'>Regular Members (75% and above attendance)</p>", unsafe_allow_html=True)
-                if status_col:
-                    regular_data = display_df[display_df['status_type'] == "Regular"].copy()
-                else:
-                    regular_data = display_df.iloc[new_count:new_count+regular_count].copy()
-                if 'name' in regular_data.columns or 'Name' in regular_data.columns:
-                    name_col = 'name' if 'name' in regular_data.columns else 'Name'
-                    # Find cell/group column
-                    cell_col = None
-                    for col in regular_data.columns:
-                        if col.lower().strip() in ['cell', 'group']:
-                            cell_col = col
-                            break
-                    # Find attendance columns
-                    attendance_cols = [col for col in regular_data.columns if any(x in col.lower() for x in ['attend', 'present', 'participation'])]
-
-                    names = sorted(regular_data[name_col].unique().tolist())
-                    tiles_html = ""
-                    for name in names:
-                        # Get cell for this person
-                        person_cell = ""
-                        if cell_col:
-                            person_row = regular_data[regular_data[name_col] == name]
-                            if not person_row.empty:
-                                person_cell = person_row[cell_col].iloc[0]
-                        # Get attendance text from attendance_stats
-                        tooltip_text = get_attendance_text(name, person_cell, attendance_stats)
-
-                        tiles_html += f"<span class='member-tile' style='border-color: #2ecc71;' data-tooltip='{tooltip_text}'>{name}</span> "
-
-                    st.markdown(tiles_html, unsafe_allow_html=True)
-                else:
-                    st.dataframe(regular_data, use_container_width=True)
+            """,
+                unsafe_allow_html=True,
+            )
 
         with col3:
-            if st.button(f"🟠 Irregular", key="btn_irregular", use_container_width=True):
-                st.session_state.expand_irregular = not st.session_state.expand_irregular
-            st.markdown(f"""
+            if st.button("🟠 Irregular", key="btn_irregular", use_container_width=True):
+                _toggle_cg_cell_health_tile_filter("Irregular")
+            st.markdown(
+                f"""
             <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
                 <div class="kpi-label">Irregular</div>
                 <div class="kpi-number" style="color: #e67e22;">{irregular_pct:.0f}%</div>
                 <div class="kpi-subtitle">{irregular_count} members</div>
             </div>
-            """, unsafe_allow_html=True)
-            if st.session_state.expand_irregular:
-                st.markdown(f"<p style='color: #e67e22; font-weight: 600;'>Irregular Members (Below 75% attendance)</p>", unsafe_allow_html=True)
-                if status_col:
-                    irregular_data = display_df[display_df['status_type'] == "Irregular"].copy()
-                else:
-                    irregular_data = display_df.iloc[new_count+regular_count:new_count+regular_count+irregular_count].copy()
-                if 'name' in irregular_data.columns or 'Name' in irregular_data.columns:
-                    name_col = 'name' if 'name' in irregular_data.columns else 'Name'
-                    # Find cell/group column
-                    cell_col = None
-                    for col in irregular_data.columns:
-                        if col.lower().strip() in ['cell', 'group']:
-                            cell_col = col
-                            break
-                    # Find attendance columns
-                    attendance_cols = [col for col in irregular_data.columns if any(x in col.lower() for x in ['attend', 'present', 'participation'])]
+            """,
+                unsafe_allow_html=True,
+            )
 
-                    names = sorted(irregular_data[name_col].unique().tolist())
-                    tiles_html = ""
-                    for name in names:
-                        # Get cell for this person
-                        person_cell = ""
-                        if cell_col:
-                            person_row = irregular_data[irregular_data[name_col] == name]
-                            if not person_row.empty:
-                                person_cell = person_row[cell_col].iloc[0]
-                        # Get attendance text from attendance_stats
-                        tooltip_text = get_attendance_text(name, person_cell, attendance_stats)
-
-                        tiles_html += f"<span class='member-tile' style='border-color: #e67e22;' data-tooltip='{tooltip_text}'>{name}</span> "
-
-                    st.markdown(tiles_html, unsafe_allow_html=True)
-                else:
-                    st.dataframe(irregular_data, use_container_width=True)
-
-        # Second row — same 3-column width as top row (compact grid)
         col4, col5, col6 = st.columns(3)
 
         with col4:
-            if st.button(f"🟡 Follow Up", key="btn_follow_up", use_container_width=True):
-                st.session_state.expand_follow_up = not st.session_state.expand_follow_up
-            st.markdown(f"""
+            if st.button("🟡 Follow Up", key="btn_follow_up", use_container_width=True):
+                _toggle_cg_cell_health_tile_filter("Follow Up")
+            st.markdown(
+                f"""
             <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
                 <div class="kpi-label">Follow Up</div>
                 <div class="kpi-number" style="color: #f39c12;">{follow_up_pct:.0f}%</div>
                 <div class="kpi-subtitle">{follow_up_count} members</div>
             </div>
-            """, unsafe_allow_html=True)
-            if st.session_state.expand_follow_up:
-                st.markdown(f"<p style='color: #f39c12; font-weight: 600;'>Follow Up (0% attendance - past 2 months)</p>", unsafe_allow_html=True)
-                if status_col:
-                    follow_up_data = display_df[display_df['status_type'] == "Follow Up"].copy()
-                else:
-                    follow_up_data = display_df.iloc[new_count+regular_count+irregular_count:new_count+regular_count+irregular_count+follow_up_count].copy()
-                if 'name' in follow_up_data.columns or 'Name' in follow_up_data.columns:
-                    name_col = 'name' if 'name' in follow_up_data.columns else 'Name'
-                    # Find cell/group column
-                    cell_col = None
-                    for col in follow_up_data.columns:
-                        if col.lower().strip() in ['cell', 'group']:
-                            cell_col = col
-                            break
-                    # Find attendance columns
-                    attendance_cols = [col for col in follow_up_data.columns if any(x in col.lower() for x in ['attend', 'present', 'participation'])]
-
-                    names = sorted(follow_up_data[name_col].unique().tolist())
-                    tiles_html = ""
-                    for name in names:
-                        # Get cell for this person
-                        person_cell = ""
-                        if cell_col:
-                            person_row = follow_up_data[follow_up_data[name_col] == name]
-                            if not person_row.empty:
-                                person_cell = person_row[cell_col].iloc[0]
-                        # Get attendance text from attendance_stats
-                        tooltip_text = get_attendance_text(name, person_cell, attendance_stats)
-
-                        tiles_html += f"<span class='member-tile' style='border-color: #f39c12;' data-tooltip='{tooltip_text}'>{name}</span> "
-
-                    st.markdown(tiles_html, unsafe_allow_html=True)
-                else:
-                    st.dataframe(follow_up_data, use_container_width=True)
+            """,
+                unsafe_allow_html=True,
+            )
 
         with col5:
-            if st.button(f"🔴 Red", key="btn_red", use_container_width=True):
-                st.session_state.expand_red = not st.session_state.expand_red
-            st.markdown(f"""
+            if st.button("🔴 Red", key="btn_red", use_container_width=True):
+                _toggle_cg_cell_health_tile_filter("Red")
+            st.markdown(
+                f"""
             <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
                 <div class="kpi-label">Red</div>
                 <div class="kpi-number" style="color: #e74c3c;">{red_pct:.0f}%</div>
                 <div class="kpi-subtitle">{red_count} members</div>
             </div>
-            """, unsafe_allow_html=True)
-            if st.session_state.expand_red:
-                st.markdown(f"<p style='color: #e74c3c; font-weight: 600;'>Red (Won't come to church anymore)</p>", unsafe_allow_html=True)
-                if status_col:
-                    red_data = display_df[display_df['status_type'] == "Red"].copy()
-                else:
-                    red_data = display_df.iloc[new_count+regular_count+irregular_count+follow_up_count:new_count+regular_count+irregular_count+follow_up_count+red_count].copy()
-                if 'name' in red_data.columns or 'Name' in red_data.columns:
-                    name_col = 'name' if 'name' in red_data.columns else 'Name'
-                    # Find cell/group column
-                    cell_col = None
-                    for col in red_data.columns:
-                        if col.lower().strip() in ['cell', 'group']:
-                            cell_col = col
-                            break
-                    # Find attendance columns
-                    attendance_cols = [col for col in red_data.columns if any(x in col.lower() for x in ['attend', 'present', 'participation'])]
-
-                    names = sorted(red_data[name_col].unique().tolist())
-                    tiles_html = ""
-                    for name in names:
-                        # Get cell for this person
-                        person_cell = ""
-                        if cell_col:
-                            person_row = red_data[red_data[name_col] == name]
-                            if not person_row.empty:
-                                person_cell = person_row[cell_col].iloc[0]
-                        # Get attendance text from attendance_stats
-                        tooltip_text = get_attendance_text(name, person_cell, attendance_stats)
-
-                        tiles_html += f"<span class='member-tile' style='border-color: #e74c3c;' data-tooltip='{tooltip_text}'>{name}</span> "
-
-                    st.markdown(tiles_html, unsafe_allow_html=True)
-                else:
-                    st.dataframe(red_data, use_container_width=True)
+            """,
+                unsafe_allow_html=True,
+            )
 
         with col6:
-            if st.button(f"⭐ Graduated", key="btn_graduated", use_container_width=True):
-                st.session_state.expand_graduated = not st.session_state.expand_graduated
-            st.markdown(f"""
+            if st.button("⭐ Graduated", key="btn_graduated", use_container_width=True):
+                _toggle_cg_cell_health_tile_filter("Graduated")
+            st.markdown(
+                f"""
             <div class="kpi-card kpi-card--cell-health" style="cursor: pointer;">
                 <div class="kpi-label">Graduated</div>
                 <div class="kpi-number" style="color: #9b59b6;">{graduated_pct:.0f}%</div>
                 <div class="kpi-subtitle">{graduated_count} members</div>
             </div>
-            """, unsafe_allow_html=True)
-            if st.session_state.expand_graduated:
-                st.markdown(f"<p style='color: #9b59b6; font-weight: 600;'>Graduated (Moved to leadership roles)</p>", unsafe_allow_html=True)
-                if status_col:
-                    graduated_data = display_df[display_df['status_type'] == "Graduated"].copy()
-                else:
-                    graduated_data = display_df.iloc[new_count+regular_count+irregular_count+follow_up_count+red_count:].copy()
-                if 'name' in graduated_data.columns or 'Name' in graduated_data.columns:
-                    name_col = 'name' if 'name' in graduated_data.columns else 'Name'
-                    # Find cell/group column
-                    cell_col = None
-                    for col in graduated_data.columns:
-                        if col.lower().strip() in ['cell', 'group']:
-                            cell_col = col
-                            break
-                    # Find attendance columns
-                    attendance_cols = [col for col in graduated_data.columns if any(x in col.lower() for x in ['attend', 'present', 'participation'])]
+            """,
+                unsafe_allow_html=True,
+            )
 
-                    names = sorted(graduated_data[name_col].unique().tolist())
-                    tiles_html = ""
-                    for name in names:
-                        # Get cell for this person
-                        person_cell = ""
-                        if cell_col:
-                            person_row = graduated_data[graduated_data[name_col] == name]
-                            if not person_row.empty:
-                                person_cell = person_row[cell_col].iloc[0]
-                        # Get attendance text from attendance_stats
-                        tooltip_text = get_attendance_text(name, person_cell, attendance_stats)
-
-                        tiles_html += f"<span class='member-tile' style='border-color: #9b59b6;' data-tooltip='{tooltip_text}'>{name}</span> "
-
-                    st.markdown(tiles_html, unsafe_allow_html=True)
-                else:
-                    st.dataframe(graduated_data, use_container_width=True)
-
+        _active = st.session_state.get("cg_cell_health_tile_filter")
+        if _active:
+            st.markdown(
+                f"<p style='color: #888; font-size: 0.85rem; margin-top: 0.5rem;'>Individual Attendance filter: <b style=\"color: {daily_colors['primary']}\">{html.escape(_active)}</b></p>",
+                unsafe_allow_html=True,
+            )
     else:
         st.info("No cell health data available.")
 
@@ -1596,6 +1404,14 @@ def categorize_member_status(attendance_count, total_possible):
         return "Irregular"
     else:  # 0% attendance = Follow Up
         return "Follow Up"
+
+
+def _toggle_cg_cell_health_tile_filter(category: str) -> None:
+    """Drive **Individual Attendance** table filter from Cell Health tiles; click same tile to clear."""
+    if st.session_state.get("cg_cell_health_tile_filter") == category:
+        st.session_state.cg_cell_health_tile_filter = None
+    else:
+        st.session_state.cg_cell_health_tile_filter = category
 
 
 def extract_cell_sheet_status_type(status_val):
@@ -3684,7 +3500,6 @@ if current_page == "cg":
     st.markdown("")
     try:
         newcomers_df = get_newcomers_data()
-        attendance_stats = get_attendance_data()  # Load attendance data
 
         if not newcomers_df.empty:
             # Get unique cell names for filtering
@@ -3733,7 +3548,7 @@ if current_page == "cg":
             # CELL HEALTH SECTION
             st.markdown(_nwst_collapsible_section_css(daily_colors["primary"]), unsafe_allow_html=True)
             with st.expander("🏥 CELL HEALTH", expanded=False):
-                _render_cg_cell_health_section(display_df, daily_colors, attendance_stats)
+                _render_cg_cell_health_section(display_df, daily_colors)
 
             with st.expander("👤 INDIVIDUAL ATTENDANCE", expanded=False):
                 if not display_df.empty:
@@ -3806,6 +3621,7 @@ if current_page == "cg":
                                     key="monthly_health_clear_filters",
                                 ):
                                     st.session_state.monthly_health_clear_filter_counter += 1
+                                    st.session_state.cg_cell_health_tile_filter = None
                                     st.rerun()
 
                             _filtered_monthly = monthly_status_df.copy()
@@ -3815,9 +3631,17 @@ if current_page == "cg":
                                     _mem_f.isin(_sel_names_mh)
                                 ]
 
+                            _ch_tile_f = st.session_state.get("cg_cell_health_tile_filter")
+                            if _ch_tile_f and "_tile_status" in _filtered_monthly.columns:
+                                _filtered_monthly = _filtered_monthly[
+                                    _filtered_monthly["_tile_status"] == _ch_tile_f
+                                ]
+
                             _mh_filter_parts = []
                             if _sel_names_mh:
                                 _mh_filter_parts.append(f"{len(_sel_names_mh)} name(s)")
+                            if _ch_tile_f:
+                                _mh_filter_parts.append(f"status: {_ch_tile_f}")
                             _mh_filter_text = (
                                 f" from {' and '.join(_mh_filter_parts)}" if _mh_filter_parts else ""
                             )
@@ -3841,9 +3665,8 @@ if current_page == "cg":
                                     _mwf["_monthly_tab_cell"].unique().tolist(),
                                     key=str.lower,
                                 )
-                                # Name search: always one table for all matching rows. Per-cell tabs would
-                                # leave Streamlit on the first tab so matches in other cells look "missing".
-                                if _sel_names_mh:
+                                # Name or Cell Health tile filter: one table so matches are not split across tabs.
+                                if _sel_names_mh or _ch_tile_f:
                                     st.markdown(
                                         render_monthly_status_html_table(_filtered_monthly),
                                         unsafe_allow_html=True,
