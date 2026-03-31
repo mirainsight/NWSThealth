@@ -232,6 +232,17 @@ def _render_cg_leadership_section(display_df, cell_filter, cell_columns, daily_c
         st.info("No leadership data available.")
 
 
+# Labels mirror ``ref.py`` ``_render_cg_cell_health_section`` KPI cards (CSS uppercases like ``.kpi-label``).
+_NWST_CH_KPI_LABELS = {
+    "New": "New Members",
+    "Regular": "Regular Members",
+    "Irregular": "Irregular Members",
+    "Follow Up": "Follow Up",
+    "Red": "Red",
+    "Graduated": "Graduated",
+}
+
+
 def _toggle_cg_cell_health_tile(category: str) -> None:
     """Toggle ``cg_cell_health_tile_filter`` (same category clears); used by tile buttons (no full page reload)."""
     cur = st.session_state.get("cg_cell_health_tile_filter")
@@ -241,31 +252,47 @@ def _toggle_cg_cell_health_tile(category: str) -> None:
         st.session_state.cg_cell_health_tile_filter = category
 
 
+def _nwst_hex_to_rgb_csv(hex_color: str) -> str:
+    """``#RRGGBB`` → ``r, g, b`` for use in ``rgba(..., a)`` (matches KPI glow in global CSS)."""
+    h = hex_color.strip().lstrip("#")
+    if len(h) != 6:
+        return "0, 0, 0"
+    return f"{int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}"
+
+
 def _nwst_cell_health_tile_face_css(_ch_tiles: list, active: str | None) -> str:
-    """Style tile buttons. Streamlit puts the container key on a class ending with ``nwst_ch_face_{i}`` (full id is hashed)."""
-    base = (
-        "border:2px solid #000!important;border-radius:6px!important;"
-        "box-shadow:4px 4px 0 #000!important;font-weight:800!important;"
-        "letter-spacing:0.04em!important;min-height:4.5rem!important;"
-        "transform:none!important;"
-    )
+    """Style tile buttons like ``ref.py`` KPI cards: dark panel, colored left rule, muted label / body copy."""
     parts: list[str] = []
     for idx, row in enumerate(_ch_tiles):
         _cat = row[0]
-        _bg = row[3]
-        _tc = row[4]
-        # Match element-container class like ``st-key---ID-<hash>-nwst_ch_face_0`` (suffix is stable).
+        accent = row[3]
         sel = f'[class$="nwst_ch_face_{idx}"] .stButton > button'
         extra = (
-            "outline:3px solid #fff!important;outline-offset:2px!important;"
-            "box-shadow:5px 5px 0 #000!important;"
+            f"outline:2px solid {accent}!important;outline-offset:2px!important;"
+            "box-shadow:0 12px 40px rgba(0,0,0,0.5)!important;"
             if _cat == active
             else ""
         )
+        core = (
+            "background:#1a1a1a!important;border-radius:0!important;"
+            f"border:1px solid #2a2a2a!important;border-left:6px solid {accent}!important;"
+            "box-shadow:0 8px 32px rgba(0,0,0,0.3)!important;"
+            "min-height:5.25rem!important;white-space:normal!important;line-height:1.35!important;"
+            "text-align:left!important;padding:0.75rem 1rem!important;"
+            "transform:none!important;color:#cccccc!important;font-family:'Inter',sans-serif!important;"
+            "align-items:flex-start!important;justify-content:flex-start!important;"
+        )
         parts.append(
-            f"{sel}{{{base}background:{_bg}!important;color:{_tc}!important;{extra}}}\n"
-            f"{sel}:hover{{filter:brightness(1.05)!important;background:{_bg}!important;color:{_tc}!important;"
-            "border-color:#000!important;transform:none!important;}}\n"
+            f"{sel}{{{core}{extra}}}\n"
+            f"{sel}:hover{{"
+            "filter:brightness(1.06)!important;"
+            f"border-left-width:8px!important;"
+            "transform:translateY(-2px)!important;"
+            "box-shadow:0 12px 40px rgba(0,0,0,0.5)!important;"
+            f"background:#1a1a1a!important;color:#cccccc!important;"
+            "border-color:#2a2a2a!important;"
+            f"border-left-color:{accent}!important;"
+            "}}\n"
         )
     return "".join(parts)
 
@@ -309,14 +336,14 @@ def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "c
         graduated_pct = (graduated_count / total_members * 100) if total_members > 0 else 0
 
         _ch_active = st.session_state.get("cg_cell_health_tile_filter")
-        # Original palette: gradient top = tile fill, gradient bottom = accent for % (glow), body text color.
+        # Status hues match ``ref.py`` Cell Health KPI cards (flat accents on dark ``#1a1a1a``).
         _ch_tiles = [
-            ("New", new_pct, new_count, "#5dade2", "#ffffff", "#1a5276"),
-            ("Regular", regular_pct, regular_count, "#58d68d", "#ffffff", "#196f3d"),
-            ("Irregular", irregular_pct, irregular_count, "#f0b27a", "#ffffff", "#a04000"),
-            ("Follow Up", follow_up_pct, follow_up_count, "#f7dc6f", "#1a1a1a", "#b9770e"),
-            ("Red", red_pct, red_count, "#f1948a", "#ffffff", "#922b21"),
-            ("Graduated", graduated_pct, graduated_count, "#af7ac5", "#ffffff", "#6c3483"),
+            ("New", new_pct, new_count, "#3498db"),
+            ("Regular", regular_pct, regular_count, "#2ecc71"),
+            ("Irregular", irregular_pct, irregular_count, "#e67e22"),
+            ("Follow Up", follow_up_pct, follow_up_count, "#f39c12"),
+            ("Red", red_pct, red_count, "#e74c3c"),
+            ("Graduated", graduated_pct, graduated_count, "#9b59b6"),
         ]
 
         with st.container(key="nwst_cell_health_tiles"):
@@ -331,14 +358,16 @@ def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "c
                 _cols = st.columns(3)
                 for _ci, _col in enumerate(_cols):
                     _idx = _row * 3 + _ci
-                    _cat, _pct, _cnt, _bg, _tc, _pct_accent = _ch_tiles[_idx]
-                    # Accent %: original gradient-bottom hue + glow (inline HTML in button markdown).
-                    _a = _pct_accent
+                    _cat, _pct, _cnt, _accent = _ch_tiles[_idx]
+                    _rgb = _nwst_hex_to_rgb_csv(_accent)
+                    _kpi_lbl = _NWST_CH_KPI_LABELS.get(_cat, _cat)
                     _lbl = (
-                        f"**{_cat.upper()}** · "
-                        f"<span style=\"color:{_a};font-weight:900;text-shadow:"
-                        f"0 0 10px {_a},0 0 18px {_a}99,0 0 26px {_a}66;\">"
-                        f"{_pct:.0f}%</span>\n_{_cnt} members_"
+                        f"<span style=\"font-size:0.72rem;font-weight:700;color:#999999;text-transform:uppercase;"
+                        f"letter-spacing:0.12em;\">{html.escape(_kpi_lbl)}</span> · "
+                        f"<span style=\"color:{_accent};font-weight:900;font-size:1.35rem;"
+                        f"text-shadow:0 0 20px rgba({_rgb}, 0.35);\">{_pct:.0f}%</span><br>"
+                        f"<span style=\"font-size:0.82rem;color:#cccccc;font-style:italic;\">"
+                        f"{_cnt} members</span>"
                     )
                     with _col:
                         with st.container(key=f"nwst_ch_face_{_idx}"):
