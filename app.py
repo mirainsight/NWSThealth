@@ -315,72 +315,83 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
         f"""
 <style>
   .ch-head {{
-    font-family: system-ui, 'Segoe UI', sans-serif;
+    font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
     font-weight: 900;
-    font-size: 1.05rem;
+    font-size: 1rem;
     color: {prim};
     text-transform: uppercase;
-    letter-spacing: 0.18em;
-    margin: 0 0 0.85rem 0;
-    text-shadow: 0 0 12px rgba({_pr},{_pg},{_pb},0.55);
+    letter-spacing: 0.22em;
+    margin: 0 0 0.75rem 0;
+    text-shadow: 0 0 14px rgba({_pr},{_pg},{_pb},0.5);
   }}
-  .ch-strip {{
-    display: flex;
-    flex-wrap: nowrap;
-    gap: clamp(0.75rem, 2vw, 1.35rem);
+  .ch-scroll {{
+    width: 100%;
     overflow-x: auto;
-    overflow-y: visible;
     -webkit-overflow-scrolling: touch;
-    padding: 0.15rem 0 0.35rem;
-    margin: 0 -0.15rem;
+    padding: 0.2rem 0 0.4rem;
+    margin: 0 -0.2rem;
   }}
-  .ch-block {{
-    flex: 1 1 0;
-    min-width: 5.25rem;
-    max-width: 8.5rem;
-    padding: 0.2rem 0.15rem 0.35rem 0.72rem;
-    border-left: 2px solid {prim};
-    box-shadow: inset 4px 0 18px -8px rgba({_pr},{_pg},{_pb},0.5);
-    background: transparent;
+  .ch-row {{
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: clamp(0.4rem, 1.2vw, 0.65rem);
+    width: max(100%, 38rem);
+    min-height: 0;
+  }}
+  .ch-card {{
+    aspect-ratio: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    border: 1px solid rgba({_pr},{_pg},{_pb},0.55);
+    border-radius: 2px;
+    background: rgba(0,0,0,0.25);
+    box-shadow: 0 0 18px rgba({_pr},{_pg},{_pb},0.08);
+    padding: 0.4rem 0.35rem 0.45rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
   }}
   .ch-lbl {{
     font-family: system-ui, 'Segoe UI', sans-serif;
-    font-size: 0.62rem;
-    font-weight: 700;
-    color: #777;
+    font-size: clamp(0.52rem, 1.1vw, 0.62rem);
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.14em;
-    margin: 0 0 0.28rem 0;
-    line-height: 1.2;
+    letter-spacing: 0.12em;
+    margin: 0 0 0.22rem 0;
+    line-height: 1.15;
   }}
   .ch-pct {{
     font-family: system-ui, 'Segoe UI', sans-serif;
-    font-size: clamp(1.2rem, 2.4vw, 1.55rem);
+    font-size: clamp(1rem, 2.2vw, 1.35rem);
     font-weight: 900;
     line-height: 1;
     margin: 0;
     letter-spacing: -0.02em;
+    color: #f5f5f5;
   }}
   .ch-members {{
     font-family: system-ui, 'Segoe UI', sans-serif;
-    font-size: 0.74rem;
-    font-weight: 600;
-    color: #e8e8e8;
-    margin: 0.32rem 0 0.12rem 0;
+    font-size: clamp(0.6rem, 1.15vw, 0.72rem);
+    font-weight: 700;
+    color: #f0f0f0;
+    margin: 0.22rem 0 0.08rem 0;
     line-height: 1.2;
   }}
   .ch-delta {{
     font-family: system-ui, 'Segoe UI', sans-serif;
-    font-size: 0.68rem;
+    font-size: clamp(0.56rem, 1.05vw, 0.66rem);
     font-weight: 800;
     letter-spacing: 0.02em;
-    margin: 0.2rem 0 0 0;
-    line-height: 1.3;
+    margin: 0.1rem 0 0 0;
+    line-height: 1.25;
     word-break: break-word;
+    max-width: 100%;
   }}
 </style>
 <p class="ch-head">Cell health mix</p>
-<div class="ch-strip">
+<div class="ch-scroll">
+<div class="ch-row">
 """,
         unsafe_allow_html=True,
     )
@@ -410,28 +421,44 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
                 d_pp = (100.0 * c / tot_c) - (100.0 * p / tot_p)
 
         if curr_agg and prev_agg and d_mem is not None and d_pp is not None:
-            dc = _nwst_cell_health_wow_color_for_delta(key, d_mem)
-            sign_m = "+" if d_mem > 0 else ""
-            sign_p = "+" if d_pp > 0 else ""
-            delta_inner = (
-                f"{sign_m}{d_mem} vs last log · mix {sign_p}{d_pp:.1f}pp"
+            neu = "#e8e8e8"
+            if d_mem == 0:
+                mem_line = "0 vs last log"
+                c_mem = neu
+            else:
+                sign_m = "+" if d_mem > 0 else ""
+                mem_line = f"{sign_m}{d_mem} vs last log"
+                c_mem = _nwst_cell_health_wow_color_for_delta(key, d_mem)
+            if abs(float(d_pp)) < 0.05:
+                mix_line = "mix 0.0pp"
+                c_pp = neu
+            else:
+                sign_p = "+" if d_pp > 0 else ""
+                mix_line = f"mix {sign_p}{d_pp:.1f}pp"
+                c_pp = _nwst_cell_health_wow_color_for_delta(key, d_pp)
+            delta_html = (
+                f'<p class="ch-delta" style="color:{html.escape(c_mem, quote=True)};">{html.escape(mem_line, quote=True)}</p>'
+                f'<p class="ch-delta" style="color:{html.escape(c_pp, quote=True)};">{html.escape(mix_line, quote=True)}</p>'
             )
-            delta_line = f'<p class="ch-delta" style="color:{dc};">{delta_inner}</p>'
         else:
-            delta_line = '<p class="ch-delta" style="color:#555;">— need 2 log snapshots</p>'
+            delta_html = (
+                '<p class="ch-delta" style="color:#666;">— need 2 log</p>'
+                '<p class="ch-delta" style="color:#666;">snapshots</p>'
+            )
 
+        accent_e = html.escape(accent, quote=True)
         block_html_parts.append(
             f"""
-<div class="ch-block">
-  <div class="ch-lbl">{html.escape(label, quote=True)}</div>
-  <p class="ch-pct" style="color:{html.escape(accent, quote=True)};">{pct:.0f}%</p>
+<div class="ch-card">
+  <div class="ch-lbl" style="color:{accent_e};">{html.escape(label, quote=True)}</div>
+  <p class="ch-pct" style="color:{accent_e} !important;">{pct:.0f}%</p>
   <p class="ch-members">{n_live} members</p>
-  {delta_line}
+  {delta_html}
 </div>
 """
         )
 
-    st.markdown("".join(block_html_parts) + "</div>", unsafe_allow_html=True)
+    st.markdown("".join(block_html_parts) + "</div></div>", unsafe_allow_html=True)
 
 
 def _render_cg_detailed_members_section(display_df, daily_colors):
