@@ -242,7 +242,7 @@ def _toggle_cg_cell_health_tile(category: str) -> None:
 
 
 def _nwst_cell_health_tile_face_css(_ch_tiles: list, active: str | None) -> str:
-    """Per-tile button colors via ``st.container(key=nwst_ch_face_{i})`` → ``.st-key-nwst_ch_face_{i}``."""
+    """Style tile buttons. Streamlit puts the container key on a class ending with ``nwst_ch_face_{i}`` (full id is hashed)."""
     base = (
         "border:2px solid #000!important;border-radius:6px!important;"
         "box-shadow:4px 4px 0 #000!important;font-weight:800!important;"
@@ -250,8 +250,12 @@ def _nwst_cell_health_tile_face_css(_ch_tiles: list, active: str | None) -> str:
         "transform:none!important;"
     )
     parts: list[str] = []
-    for idx, (_cat, _pct, _cnt, bg, tc) in enumerate(_ch_tiles):
-        sel = f".st-key-nwst_ch_face_{idx} .stButton > button"
+    for idx, row in enumerate(_ch_tiles):
+        _cat = row[0]
+        _bg = row[3]
+        _tc = row[4]
+        # Match element-container class like ``st-key---ID-<hash>-nwst_ch_face_0`` (suffix is stable).
+        sel = f'[class$="nwst_ch_face_{idx}"] .stButton > button'
         extra = (
             "outline:3px solid #fff!important;outline-offset:2px!important;"
             "box-shadow:5px 5px 0 #000!important;"
@@ -259,8 +263,8 @@ def _nwst_cell_health_tile_face_css(_ch_tiles: list, active: str | None) -> str:
             else ""
         )
         parts.append(
-            f"{sel}{{{base}background:{bg}!important;color:{tc}!important;{extra}}}\n"
-            f"{sel}:hover{{filter:brightness(1.05)!important;background:{bg}!important;color:{tc}!important;"
+            f"{sel}{{{base}background:{_bg}!important;color:{_tc}!important;{extra}}}\n"
+            f"{sel}:hover{{filter:brightness(1.05)!important;background:{_bg}!important;color:{_tc}!important;"
             "border-color:#000!important;transform:none!important;}}\n"
         )
     return "".join(parts)
@@ -305,14 +309,14 @@ def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "c
         graduated_pct = (graduated_count / total_members * 100) if total_members > 0 else 0
 
         _ch_active = st.session_state.get("cg_cell_health_tile_filter")
-        # Original status palette (pre-neon): same hexes as the old gradient tops + text colors.
+        # Original palette: gradient top = tile fill, gradient bottom = accent for % (glow), body text color.
         _ch_tiles = [
-            ("New", new_pct, new_count, "#5dade2", "#ffffff"),
-            ("Regular", regular_pct, regular_count, "#58d68d", "#ffffff"),
-            ("Irregular", irregular_pct, irregular_count, "#f0b27a", "#ffffff"),
-            ("Follow Up", follow_up_pct, follow_up_count, "#f7dc6f", "#1a1a1a"),
-            ("Red", red_pct, red_count, "#f1948a", "#ffffff"),
-            ("Graduated", graduated_pct, graduated_count, "#af7ac5", "#ffffff"),
+            ("New", new_pct, new_count, "#5dade2", "#ffffff", "#1a5276"),
+            ("Regular", regular_pct, regular_count, "#58d68d", "#ffffff", "#196f3d"),
+            ("Irregular", irregular_pct, irregular_count, "#f0b27a", "#ffffff", "#a04000"),
+            ("Follow Up", follow_up_pct, follow_up_count, "#f7dc6f", "#1a1a1a", "#b9770e"),
+            ("Red", red_pct, red_count, "#f1948a", "#ffffff", "#922b21"),
+            ("Graduated", graduated_pct, graduated_count, "#af7ac5", "#ffffff", "#6c3483"),
         ]
 
         with st.container(key="nwst_cell_health_tiles"):
@@ -327,8 +331,15 @@ def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "c
                 _cols = st.columns(3)
                 for _ci, _col in enumerate(_cols):
                     _idx = _row * 3 + _ci
-                    _cat, _pct, _cnt, _bg, _tc = _ch_tiles[_idx]
-                    _lbl = f"**{_cat.upper()}** · {_pct:.0f}%\n_{_cnt} members_"
+                    _cat, _pct, _cnt, _bg, _tc, _pct_accent = _ch_tiles[_idx]
+                    # Accent %: original gradient-bottom hue + glow (inline HTML in button markdown).
+                    _a = _pct_accent
+                    _lbl = (
+                        f"**{_cat.upper()}** · "
+                        f"<span style=\"color:{_a};font-weight:900;text-shadow:"
+                        f"0 0 10px {_a},0 0 18px {_a}99,0 0 26px {_a}66;\">"
+                        f"{_pct:.0f}%</span>\n_{_cnt} members_"
+                    )
                     with _col:
                         with st.container(key=f"nwst_ch_face_{_idx}"):
                             st.button(
