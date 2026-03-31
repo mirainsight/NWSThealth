@@ -315,79 +315,72 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
         f"""
 <style>
   .ch-head {{
-    font-family: 'Inter', sans-serif;
+    font-family: system-ui, 'Segoe UI', sans-serif;
     font-weight: 900;
-    font-size: 1.25rem;
+    font-size: 1.05rem;
     color: {prim};
     text-transform: uppercase;
-    letter-spacing: 0.12em;
-    margin: 0 0 1rem 0;
-    text-shadow: 0 0 18px {prim};
+    letter-spacing: 0.18em;
+    margin: 0 0 0.85rem 0;
+    text-shadow: 0 0 12px rgba({_pr},{_pg},{_pb},0.55);
   }}
-  .ch-wow-scroll {{
-    width: 100%;
+  .ch-strip {{
+    display: flex;
+    flex-wrap: nowrap;
+    gap: clamp(0.75rem, 2vw, 1.35rem);
     overflow-x: auto;
     overflow-y: visible;
     -webkit-overflow-scrolling: touch;
-    margin-bottom: 0.5rem;
-    padding-bottom: 0.15rem;
+    padding: 0.15rem 0 0.35rem;
+    margin: 0 -0.15rem;
   }}
-  .ch-wow-grid {{
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 0.65rem;
-    width: 100%;
-    min-width: 34rem;
+  .ch-block {{
+    flex: 1 1 0;
+    min-width: 5.25rem;
+    max-width: 8.5rem;
+    padding: 0.2rem 0.15rem 0.35rem 0.72rem;
+    border-left: 2px solid {prim};
+    box-shadow: inset 4px 0 18px -8px rgba({_pr},{_pg},{_pb},0.5);
+    background: transparent;
   }}
-  .ch-wow-tile {{
-    min-width: 0;
-    aspect-ratio: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: stretch;
-    box-sizing: border-box;
-    background: #111;
-    border: 2px solid {prim};
-    border-radius: 0;
-    padding: 0.5rem 0.4rem 0.55rem;
-    box-shadow: 0 0 22px rgba(0,0,0,0.55), 0 0 18px rgba({_pr},{_pg},{_pb},0.28);
-  }}
-  .ch-wow-label {{
-    font-family: 'Inter', sans-serif;
-    font-size: 0.68rem;
-    font-weight: 800;
-    color: #888;
+  .ch-lbl {{
+    font-family: system-ui, 'Segoe UI', sans-serif;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: #777;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
-      margin-bottom: 0.35rem;
+    letter-spacing: 0.14em;
+    margin: 0 0 0.28rem 0;
+    line-height: 1.2;
   }}
-  .ch-wow-pct {{
-    font-family: 'Inter', sans-serif;
-    font-size: clamp(1.15rem, 2.6vw, 2.05rem);
+  .ch-pct {{
+    font-family: system-ui, 'Segoe UI', sans-serif;
+    font-size: clamp(1.2rem, 2.4vw, 1.55rem);
     font-weight: 900;
     line-height: 1;
     margin: 0;
+    letter-spacing: -0.02em;
   }}
-  .ch-wow-n {{
-    font-family: 'Inter', sans-serif;
-    font-size: clamp(0.62rem, 1.1vw, 0.78rem);
-    color: #bbb;
-    margin: 0.3rem 0 0.1rem;
+  .ch-members {{
+    font-family: system-ui, 'Segoe UI', sans-serif;
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: #e8e8e8;
+    margin: 0.32rem 0 0.12rem 0;
+    line-height: 1.2;
   }}
-  .ch-wow-delta {{
-    font-family: 'Inter', sans-serif;
-    font-size: clamp(0.6rem, 1vw, 0.82rem);
+  .ch-delta {{
+    font-family: system-ui, 'Segoe UI', sans-serif;
+    font-size: 0.68rem;
     font-weight: 800;
-    letter-spacing: 0.03em;
-    margin-top: 0.15rem;
-    line-height: 1.25;
+    letter-spacing: 0.02em;
+    margin: 0.2rem 0 0 0;
+    line-height: 1.3;
     word-break: break-word;
   }}
 </style>
 <p class="ch-head">Cell health mix</p>
-<div class="ch-wow-scroll">
-<div class="ch-wow-grid">
+<div class="ch-strip">
 """,
         unsafe_allow_html=True,
     )
@@ -401,7 +394,7 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
         ("graduated", "Graduated", "#9b59b6"),
     ]
 
-    tile_html_parts = []
+    block_html_parts = []
     for key, label, accent in tiles_spec:
         n_live = live_counts[key]
         pct = (100.0 * n_live / total_members) if total_members > 0 else 0.0
@@ -420,25 +413,25 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
             dc = _nwst_cell_health_wow_color_for_delta(key, d_mem)
             sign_m = "+" if d_mem > 0 else ""
             sign_p = "+" if d_pp > 0 else ""
-            delta_line = (
-                f'<p class="ch-wow-delta" style="color:{dc};">'
-                f"{sign_m}{d_mem} vs last log · mix {sign_p}{d_pp:.1f}pp</p>"
+            delta_inner = (
+                f"{sign_m}{d_mem} vs last log · mix {sign_p}{d_pp:.1f}pp"
             )
+            delta_line = f'<p class="ch-delta" style="color:{dc};">{delta_inner}</p>'
         else:
-            delta_line = '<p class="ch-wow-delta" style="color:#666;">— WoW (need 2 snapshots in log)</p>'
+            delta_line = '<p class="ch-delta" style="color:#555;">— need 2 log snapshots</p>'
 
-        tile_html_parts.append(
+        block_html_parts.append(
             f"""
-<div class="ch-wow-tile">
-  <div class="ch-wow-label">{html.escape(label, quote=True)}</div>
-  <p class="ch-wow-pct" style="color:{accent};">{pct:.0f}%</p>
-  <p class="ch-wow-n">{n_live} members</p>
+<div class="ch-block">
+  <div class="ch-lbl">{html.escape(label, quote=True)}</div>
+  <p class="ch-pct" style="color:{html.escape(accent, quote=True)};">{pct:.0f}%</p>
+  <p class="ch-members">{n_live} members</p>
   {delta_line}
 </div>
 """
         )
 
-    st.markdown("".join(tile_html_parts) + "</div></div>", unsafe_allow_html=True)
+    st.markdown("".join(block_html_parts) + "</div>", unsafe_allow_html=True)
 
 
 def _render_cg_detailed_members_section(display_df, daily_colors):
