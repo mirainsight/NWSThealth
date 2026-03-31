@@ -265,15 +265,24 @@ def _nwst_cell_health_tile_face_css(n_tile: int) -> str:
     parts: list[str] = []
     for idx in range(n_tile):
         root = f'[class$="nwst_ch_face_{idx}"]'
+        # Pull the button block out of flow so it does not leave a grey strip; cover full tile (markdown height).
+        btn_shell = f'{root} div[data-testid="stElementContainer"]:has(.stButton)'
         parts.append(
             f"{root}{{position:relative!important;min-height:5.25rem!important;}}\n"
             f"{root} [data-testid='stMarkdownContainer']{{pointer-events:none!important;}}\n"
-            f"{root} .stButton{{position:absolute!important;inset:0!important;z-index:2!important;"
-            "height:auto!important;width:100%!important;}}\n"
-            f"{root} .stButton>button{{position:absolute!important;inset:0!important;width:100%!important;"
-            "height:100%!important;min-height:5.25rem!important;opacity:0!important;cursor:pointer!important;"
+            f"{btn_shell}{{position:absolute!important;inset:0!important;z-index:2!important;"
+            "width:100%!important;height:100%!important;padding:0!important;margin:0!important;"
+            "background:transparent!important;border:none!important;box-shadow:none!important;}}\n"
+            f"{btn_shell} .stButton{{width:100%!important;height:100%!important;"
+            "position:absolute!important;inset:0!important;margin:0!important;padding:0!important;"
+            "background:transparent!important;border:none!important;box-shadow:none!important;}}\n"
+            f"{btn_shell} .stButton>button{{position:absolute!important;inset:0!important;width:100%!important;"
+            "height:100%!important;min-height:100%!important;opacity:0!important;cursor:pointer!important;"
             "padding:0!important;margin:0!important;border:none!important;background:transparent!important;"
-            "box-shadow:none!important;}}\n"
+            "box-shadow:none!important;outline:none!important;line-height:0!important;}}\n"
+            # Base Web / theme chrome on secondary buttons
+            f"{btn_shell} [data-baseweb='button']{{background:transparent!important;border:none!important;"
+            "box-shadow:none!important;min-height:100%!important;height:100%!important;}}\n"
             f"{root}:hover .nwst-ch-tile-face{{filter:brightness(1.06)!important;"
             "transform:translateY(-2px)!important;box-shadow:0 12px 40px rgba(0,0,0,0.5)!important;"
             "border-left-width:8px!important;}}\n"
@@ -371,6 +380,7 @@ def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "c
                         with st.container(key=f"nwst_ch_face_{_idx}"):
                             st.markdown(_tile_html, unsafe_allow_html=True)
                             # No ``label_visibility`` — older Streamlit rejects it on ``st.button``; face is markup + CSS ``opacity:0`` overlay.
+                            # No ``help`` — avoids extra Base Web chrome; whole tile is the hit target via CSS overlay.
                             st.button(
                                 " ",
                                 key=f"nwst_ch_btn_{_idx}",
@@ -378,7 +388,6 @@ def _render_cg_cell_health_section(display_df, daily_colors, page_slug: str = "c
                                 args=(_cat,),
                                 use_container_width=True,
                                 type="secondary",
-                                help=f"Tap to filter Individual Attendance by «{_cat}» (tap again to clear).",
                             )
 
         if _ch_active:
