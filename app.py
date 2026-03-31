@@ -63,7 +63,8 @@ div[data-testid="stExpander"] details {{
     background: transparent;
     border: none;
 }}
-div[data-testid="stExpander"] summary {{
+/* Only the expander title row — not <summary> inside Cell/Member table trunc widgets */
+div[data-testid="stExpander"] summary:not(.monthly-trunc-summary):not(.newcomer-trunc-summary) {{
     font-family: 'Inter', sans-serif !important;
     font-weight: 900 !important;
     font-size: 1.2rem !important;
@@ -77,7 +78,7 @@ div[data-testid="stExpander"] summary {{
     border-bottom: 3px solid {c} !important;
     background: #000000 !important;
 }}
-div[data-testid="stExpander"] summary::-webkit-details-marker {{
+div[data-testid="stExpander"] summary:not(.monthly-trunc-summary):not(.newcomer-trunc-summary)::-webkit-details-marker {{
     display: none !important;
 }}
 </style>"""
@@ -2988,8 +2989,12 @@ st.markdown(f"""
         text-overflow: ellipsis;
         white-space: nowrap;
         max-width: 100%;
-        color: #e8e8e8;
-        font-weight: 500;
+        color: #e0e0e0;
+        font-weight: 400;
+        font-size: inherit;
+        text-transform: none;
+        border-bottom: none;
+        letter-spacing: normal;
     }}
     .monthly-attendance-table .monthly-trunc-summary::-webkit-details-marker {{
         display: none;
@@ -2999,11 +3004,12 @@ st.markdown(f"""
         margin-top: 0.35rem;
         padding-top: 0.35rem;
         border-top: 1px solid rgba(255, 255, 255, 0.1);
-        color: #ffffff;
-        font-weight: 600;
+        color: #e0e0e0;
+        font-weight: 400;
         white-space: normal;
         word-break: break-word;
         line-height: 1.3;
+        text-transform: none;
     }}
     .monthly-attendance-table th:nth-child(3),
     .monthly-attendance-table td:nth-child(3) {{
@@ -3096,8 +3102,12 @@ st.markdown(f"""
         text-overflow: ellipsis;
         white-space: nowrap;
         max-width: 100%;
-        color: #e8e8e8;
-        font-weight: 500;
+        color: #e0e0e0;
+        font-weight: 400;
+        font-size: inherit;
+        text-transform: none;
+        border-bottom: none;
+        letter-spacing: normal;
     }}
     .newcomer-list-table .newcomer-trunc-summary::-webkit-details-marker {{
         display: none;
@@ -3107,11 +3117,12 @@ st.markdown(f"""
         margin-top: 0.35rem;
         padding-top: 0.35rem;
         border-top: 1px solid rgba(255, 255, 255, 0.1);
-        color: #ffffff;
-        font-weight: 600;
+        color: #e0e0e0;
+        font-weight: 400;
         white-space: normal;
         word-break: break-word;
         line-height: 1.3;
+        text-transform: none;
     }}
 
 </style>
