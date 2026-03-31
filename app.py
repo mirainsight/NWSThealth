@@ -326,27 +326,27 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
   }}
   .ch-scroll {{
     width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    padding: 0.2rem 0 0.4rem;
-    margin: 0 -0.2rem;
+    padding: 0.1rem 0 0.35rem;
+    margin: 0;
   }}
+  /* Reference-style pack: 3 across × 2 rows, tight gutters, short landscape tiles */
   .ch-row {{
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: clamp(0.4rem, 1.2vw, 0.65rem);
-    width: max(100%, 38rem);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(2, auto);
+    gap: 0.38rem 0.42rem;
+    width: 100%;
     min-height: 0;
   }}
   .ch-card {{
-    aspect-ratio: 1;
+    aspect-ratio: 4 / 3;
     min-width: 0;
     box-sizing: border-box;
     border: 1px solid rgba({_pr},{_pg},{_pb},0.55);
-    border-radius: 2px;
+    border-radius: 4px;
     background: rgba(0,0,0,0.25);
-    box-shadow: 0 0 18px rgba({_pr},{_pg},{_pb},0.08);
-    padding: 0.4rem 0.35rem 0.45rem;
+    box-shadow: 0 0 14px rgba({_pr},{_pg},{_pb},0.08);
+    padding: 0.38rem 0.4rem 0.42rem;
     display: flex;
     flex-direction: column;
     justify-content: center;
