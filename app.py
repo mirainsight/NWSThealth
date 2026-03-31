@@ -3443,35 +3443,12 @@ if current_page == "cg":
                                 st.session_state.monthly_health_clear_filter_counter = 0
                             _mh_fc = st.session_state.monthly_health_clear_filter_counter
 
-                            _cell_series = monthly_status_df["Cell"].fillna("").astype(str)
-                            _cell_groups_mh = sorted(_cell_series.unique().tolist(), key=str.lower)
                             _all_names_mh = sorted(
                                 monthly_status_df["Member"].dropna().astype(str).str.strip().unique().tolist(),
                                 key=str.lower,
                             )
                             _all_names_mh = [n for n in _all_names_mh if n]
 
-                            _mh_fcol1, _mh_fcol2 = st.columns([3, 1])
-                            with _mh_fcol1:
-                                _sel_cells_mh = st.multiselect(
-                                    "Filter by Cell Group...",
-                                    options=_cell_groups_mh,
-                                    default=[],
-                                    key=f"monthly_health_cell_multiselect_{_mh_fc}",
-                                    placeholder="Select cell groups...",
-                                    label_visibility="collapsed",
-                                )
-                            with _mh_fcol2:
-                                if st.button(
-                                    "Clear All",
-                                    type="secondary",
-                                    use_container_width=True,
-                                    key="monthly_health_clear_filters",
-                                ):
-                                    st.session_state.monthly_health_clear_filter_counter += 1
-                                    st.rerun()
-
-                            st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
                             _mh_ncol1, _mh_ncol2 = st.columns([3, 1])
                             with _mh_ncol1:
                                 _sel_names_mh = st.multiselect(
@@ -3483,15 +3460,16 @@ if current_page == "cg":
                                     label_visibility="collapsed",
                                 )
                             with _mh_ncol2:
-                                st.markdown(
-                                    "<div style='height: 38px;'></div>",
-                                    unsafe_allow_html=True,
-                                )
+                                if st.button(
+                                    "Clear All",
+                                    type="secondary",
+                                    use_container_width=True,
+                                    key="monthly_health_clear_filters",
+                                ):
+                                    st.session_state.monthly_health_clear_filter_counter += 1
+                                    st.rerun()
 
                             _filtered_monthly = monthly_status_df.copy()
-                            if _sel_cells_mh:
-                                _cs = monthly_status_df["Cell"].fillna("").astype(str)
-                                _filtered_monthly = _filtered_monthly[_cs.isin(_sel_cells_mh)]
                             if _sel_names_mh:
                                 _mem_f = _filtered_monthly["Member"].dropna().astype(str).str.strip()
                                 _filtered_monthly = _filtered_monthly[
@@ -3499,8 +3477,6 @@ if current_page == "cg":
                                 ]
 
                             _mh_filter_parts = []
-                            if _sel_cells_mh:
-                                _mh_filter_parts.append(f"{len(_sel_cells_mh)} cell group(s)")
                             if _sel_names_mh:
                                 _mh_filter_parts.append(f"{len(_sel_names_mh)} name(s)")
                             _mh_filter_text = (
