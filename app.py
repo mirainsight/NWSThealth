@@ -253,31 +253,13 @@ def _render_cg_leadership_section(display_df, cell_filter, cell_columns, daily_c
         st.info("No leadership data available.")
 
 
-def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
-    """CG Health — mix quick view + WoW from **Historical Cell Status** (no KPI tile expanders)."""
+def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", attendance_stats=None):
+    """Cell health mix — ref.py kpi column layout + Historical Cell Status WoW pills + expandable name tiles."""
+    if attendance_stats is None:
+        attendance_stats = {}
+
     prim_hex = str(daily_colors.get("primary", "#00ff00"))
     prim = html.escape(prim_hex, quote=True)
-    ph = prim_hex.lstrip("#")
-    try:
-        _pr, _pg, _pb = (int(ph[i : i + 2], 16) for i in (0, 2, 4)) if len(ph) >= 6 else (0, 255, 0)
-    except ValueError:
-        _pr, _pg, _pb = 0, 255, 0
-
-    def _agg_n(agg, key):
-        if not agg:
-            return 0
-        if key == "follow_up":
-            return int(agg.get("follow up", 0) or 0)
-        return int(agg.get(key, 0) or 0)
-
-    def _hex_rgb(hx: str):
-        h = str(hx).lstrip("#").strip()
-        try:
-            if len(h) >= 6:
-                return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        except ValueError:
-            pass
-        return 128, 128, 128
 
     if display_df.empty:
         st.info("No cell health data available.")
@@ -296,45 +278,41 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
         red_count = len(work_df[work_df["status_type"] == "Red"])
         graduated_count = len(work_df[work_df["status_type"] == "Graduated"])
     else:
-        total_members = len(work_df)
-        new_count = max(1, int(total_members * 0.20))
-        regular_count = max(1, int(total_members * 0.40))
-        irregular_count = max(1, int(total_members * 0.20))
-        follow_up_count = max(1, int(total_members * 0.10))
-        red_count = max(1, int(total_members * 0.05))
-        graduated_count = total_members - new_count - regular_count - irregular_count - follow_up_count - red_count
+        total_members_fb = len(work_df)
+        new_count = max(1, int(total_members_fb * 0.20))
+        regular_count = max(1, int(total_members_fb * 0.40))
+        irregular_count = max(1, int(total_members_fb * 0.20))
+        follow_up_count = max(1, int(total_members_fb * 0.10))
+        red_count = max(1, int(total_members_fb * 0.05))
+        graduated_count = (
+            total_members_fb - new_count - regular_count - irregular_count - follow_up_count - red_count
+        )
 
     total_members = new_count + regular_count + irregular_count + follow_up_count + red_count + graduated_count
 
-    live_counts = {
-        "new": new_count,
-        "regular": regular_count,
-        "irregular": irregular_count,
-        "follow_up": follow_up_count,
-        "red": red_count,
-        "graduated": graduated_count,
-    }
+    new_pct = (new_count / total_members * 100) if total_members > 0 else 0
+    regular_pct = (regular_count / total_members * 100) if total_members > 0 else 0
+    irregular_pct = (irregular_count / total_members * 100) if total_members > 0 else 0
+    follow_up_pct = (follow_up_count / total_members * 100) if total_members > 0 else 0
+    red_pct = (red_count / total_members * 100) if total_members > 0 else 0
+    graduated_pct = (graduated_count / total_members * 100) if total_members > 0 else 0
 
     hist_df = load_historical_cell_status_dataframe()
     curr_agg, prev_agg = None, None
     if hist_df is not None and not hist_df.empty:
         curr_agg, prev_agg, _, _ = _nwst_hist_cell_wow_for_scope(hist_df, cell_filter)
 
-    tiles_spec = [
-        ("new", "New", "#3498db"),
-        ("regular", "Regular", "#2ecc71"),
-        ("irregular", "Irregular", "#e67e22"),
-        ("follow_up", "Follow Up", "#f39c12"),
-        ("red", "Red", "#e74c3c"),
-        ("graduated", "Graduated", "#9b59b6"),
-    ]
+    wow_new = _nwst_cell_health_wow_pill_html("new", curr_agg, prev_agg)
+    wow_regular = _nwst_cell_health_wow_pill_html("regular", curr_agg, prev_agg)
+    wow_irregular = _nwst_cell_health_wow_pill_html("irregular", curr_agg, prev_agg)
+    wow_follow_up = _nwst_cell_health_wow_pill_html("follow_up", curr_agg, prev_agg)
+    wow_red = _nwst_cell_health_wow_pill_html("red", curr_agg, prev_agg)
+    wow_graduated = _nwst_cell_health_wow_pill_html("graduated", curr_agg, prev_agg)
 
-    # One st.markdown only: Streamlit wraps each call in its own block — splitting open/close
-    # divs across two calls breaks the grid and can blow one "card" to full viewport height.
-    block_html_parts = [
+    st.markdown(
         f"""
 <style>
-  .ch-head {{
+  .ch-head-nwst {{
     font-family: 'Inter', sans-serif;
     font-weight: 700;
     font-size: 0.82rem;
@@ -343,71 +321,7 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
     letter-spacing: 0.16em;
     margin: 0 0 0.5rem 0;
   }}
-  .ch-scroll {{
-    width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    padding: 0 0 0.35rem;
-    margin: 0;
-  }}
-  .ch-row {{
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 0.28rem 0.32rem;
-    width: 100%;
-    min-width: 34rem;
-    min-height: 0;
-  }}
-  .ch-card {{
-    min-width: 0;
-    max-width: 100%;
-    height: auto;
-    min-height: 0;
-    max-height: 6.5rem;
-    box-sizing: border-box;
-    border: 1px solid rgba({_pr},{_pg},{_pb},0.35);
-    border-radius: 0;
-    background: #1a1a1a;
-    border-left: 4px solid rgba({_pr},{_pg},{_pb},0.95);
-    padding: 0.26rem 0.3rem 0.28rem;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    align-items: flex-start;
-    overflow: hidden;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
-  }}
-  /* KPI-style label / number rhythm (ref.py); glow only via inline on .ch-lbl & .ch-pct */
-  .ch-lbl {{
-    font-family: 'Inter', sans-serif;
-    font-size: 0.62rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    margin: 0 0 0.1rem 0;
-    line-height: 1.2;
-  }}
-  .ch-pct {{
-    font-family: 'Inter', sans-serif;
-    font-size: clamp(0.92rem, 1.9vw, 1.12rem);
-    font-weight: 900;
-    line-height: 1;
-    margin: 0;
-    letter-spacing: -0.02em;
-  }}
-  .ch-members {{
-    font-family: 'Inter', sans-serif;
-    font-size: 0.64rem;
-    font-weight: 400;
-    color: #bdbdbd;
-    margin: 0.12rem 0 0.02rem 0;
-    line-height: 1.25;
-  }}
-  .ch-pill-wrap {{
-    margin-top: 0.12rem;
-    line-height: 1;
-    max-width: 100%;
-  }}
+  .ch-pill-wrap {{ margin-top: 0.35rem; line-height: 1; max-width: 100%; }}
   .ch-pill {{
     display: inline-flex;
     align-items: center;
@@ -454,86 +368,235 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All"):
     opacity: 0.95;
   }}
 </style>
-<p class="ch-head">Cell health mix</p>
-<div class="ch-scroll">
-<div class="ch-row">
-"""
-    ]
-    for key, label, accent in tiles_spec:
-        n_live = live_counts[key]
-        pct = (100.0 * n_live / total_members) if total_members > 0 else 0.0
-        d_mem = None
-        d_pp = None
-        if curr_agg and prev_agg:
-            c = _agg_n(curr_agg, key)
-            p = _agg_n(prev_agg, key)
-            d_mem = c - p
-            tot_c = _agg_n(curr_agg, "total")
-            tot_p = _agg_n(prev_agg, "total")
-            if tot_p > 0 and tot_c > 0:
-                d_pp = (100.0 * c / tot_c) - (100.0 * p / tot_p)
+<p class="ch-head-nwst">Cell health mix</p>
+""",
+        unsafe_allow_html=True,
+    )
 
-        if curr_agg and prev_agg and d_mem is not None and d_pp is not None:
-            pp_sh = float(d_pp)
-            pp_str = f"{pp_sh:+.1f}%"
-            mem_str = f"{d_mem:+d}"
-            bubble_txt = html.escape(f"{mem_str} ({pp_str})", quote=True)
-            flat = d_mem == 0 and abs(pp_sh) < 0.05
-            if flat:
-                arrow = "·"
-                pill_cls = "ch-pill-flat"
-            elif d_mem == 0:
-                arrow = "·"
-                tone = _nwst_cell_health_wow_color_for_delta(key, pp_sh)
-                if tone == "#2ecc71":
-                    pill_cls = "ch-pill-good"
-                elif tone == "#e74c3c":
-                    pill_cls = "ch-pill-bad"
-                else:
-                    pill_cls = "ch-pill-flat"
-            else:
-                arrow = "↑" if d_mem > 0 else "↓"
-                tone = _nwst_cell_health_wow_color_for_delta(key, d_mem)
-                if tone == "#2ecc71":
-                    pill_cls = "ch-pill-good"
-                elif tone == "#e74c3c":
-                    pill_cls = "ch-pill-bad"
-                else:
-                    pill_cls = "ch-pill-flat"
-            delta_html = (
-                f'<div class="ch-pill-wrap"><span class="ch-pill {pill_cls}">'
-                f'<span class="ch-pill-arrow">{html.escape(arrow, quote=True)}</span>'
-                f"<span>{bubble_txt}</span>"
-                f"</span></div>"
-            )
+    def _member_tiles(data_df, border_color):
+        if data_df.empty:
+            st.caption("No members in this bucket.")
+            return
+        if "name" in data_df.columns or "Name" in data_df.columns:
+            name_col = "name" if "name" in data_df.columns else "Name"
+            cell_col = None
+            for col in data_df.columns:
+                if col.lower().strip() in ["cell", "group"]:
+                    cell_col = col
+                    break
+            bc = html.escape(border_color, quote=True)
+            names = sorted(data_df[name_col].astype(str).unique().tolist())
+            parts = []
+            for name in names:
+                person_cell = ""
+                if cell_col:
+                    person_row = data_df[data_df[name_col] == name]
+                    if not person_row.empty:
+                        person_cell = str(person_row[cell_col].iloc[0]).strip()
+                tooltip_text = get_attendance_text(name, person_cell, attendance_stats)
+                tip_e = html.escape(tooltip_text, quote=True)
+                name_e = html.escape(str(name), quote=True)
+                parts.append(
+                    f'<span class="member-tile" style="border-color: {bc};" data-tooltip="{tip_e}">{name_e}</span> '
+                )
+            st.markdown("".join(parts), unsafe_allow_html=True)
         else:
-            delta_html = (
-                '<div class="ch-pill-wrap"><span class="ch-pill ch-pill-na">Need 2 log snapshots</span></div>'
-            )
+            st.dataframe(data_df, use_container_width=True)
 
-        accent_e = html.escape(accent, quote=True)
-        ar, ag, ab = _hex_rgb(accent)
-        lbl_glow = (
-            f"color:{accent_e};"
-            f"text-shadow:0 0 10px rgba({ar},{ag},{ab},0.72),0 0 20px rgba({ar},{ag},{ab},0.38);"
-        )
-        pct_glow = (
-            f"color:{accent_e} !important;"
-            f"text-shadow:0 0 12px rgba({ar},{ag},{ab},0.78),0 0 26px rgba({ar},{ag},{ab},0.42);"
-        )
-        block_html_parts.append(
+    for _sk in (
+        "expand_new",
+        "expand_regular",
+        "expand_irregular",
+        "expand_follow_up",
+        "expand_red",
+        "expand_graduated",
+    ):
+        if _sk not in st.session_state:
+            st.session_state[_sk] = False
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if st.button("🔵 New", key="btn_new", use_container_width=True):
+            st.session_state.expand_new = not st.session_state.expand_new
+        st.markdown(
             f"""
-<div class="ch-card">
-  <div class="ch-lbl" style="{lbl_glow}">{html.escape(label, quote=True)}</div>
-  <p class="ch-pct" style="{pct_glow}">{pct:.0f}%</p>
-  <p class="ch-members">{n_live} members</p>
-  {delta_html}
-</div>
-"""
+            <div class="kpi-card" style="cursor: pointer;">
+                <div class="kpi-label">New Members</div>
+                <div class="kpi-number" style="color: #3498db;">{new_pct:.0f}%</div>
+                <div class="kpi-subtitle">{new_count} members</div>
+                {wow_new}
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
+        if st.session_state.expand_new:
+            st.markdown(
+                "<p style='color: #3498db; font-weight: 600;'>New Members</p>",
+                unsafe_allow_html=True,
+            )
+            if status_col:
+                new_data = work_df[work_df["status_type"] == "New"].copy()
+            else:
+                new_data = work_df.head(new_count).copy()
+            _member_tiles(new_data, "#3498db")
 
-    block_html_parts.append("</div></div>")
-    st.markdown("".join(block_html_parts), unsafe_allow_html=True)
+    with col2:
+        if st.button("🟢 Regular", key="btn_regular", use_container_width=True):
+            st.session_state.expand_regular = not st.session_state.expand_regular
+        st.markdown(
+            f"""
+            <div class="kpi-card" style="cursor: pointer;">
+                <div class="kpi-label">Regular Members</div>
+                <div class="kpi-number" style="color: #2ecc71;">{regular_pct:.0f}%</div>
+                <div class="kpi-subtitle">{regular_count} members</div>
+                {wow_regular}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.session_state.expand_regular:
+            st.markdown(
+                "<p style='color: #2ecc71; font-weight: 600;'>Regular Members (75% and above attendance)</p>",
+                unsafe_allow_html=True,
+            )
+            if status_col:
+                regular_data = work_df[work_df["status_type"] == "Regular"].copy()
+            else:
+                regular_data = work_df.iloc[new_count : new_count + regular_count].copy()
+            _member_tiles(regular_data, "#2ecc71")
+
+    with col3:
+        if st.button("🟠 Irregular", key="btn_irregular", use_container_width=True):
+            st.session_state.expand_irregular = not st.session_state.expand_irregular
+        st.markdown(
+            f"""
+            <div class="kpi-card" style="cursor: pointer;">
+                <div class="kpi-label">Irregular Members</div>
+                <div class="kpi-number" style="color: #e67e22;">{irregular_pct:.0f}%</div>
+                <div class="kpi-subtitle">{irregular_count} members</div>
+                {wow_irregular}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.session_state.expand_irregular:
+            st.markdown(
+                "<p style='color: #e67e22; font-weight: 600;'>Irregular Members (Below 75% attendance)</p>",
+                unsafe_allow_html=True,
+            )
+            if status_col:
+                irregular_data = work_df[work_df["status_type"] == "Irregular"].copy()
+            else:
+                irregular_data = work_df.iloc[
+                    new_count + regular_count : new_count + regular_count + irregular_count
+                ].copy()
+            _member_tiles(irregular_data, "#e67e22")
+
+    st.markdown("")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("🟡 Follow Up", key="btn_follow_up", use_container_width=True):
+            st.session_state.expand_follow_up = not st.session_state.expand_follow_up
+        st.markdown(
+            f"""
+            <div class="kpi-card" style="cursor: pointer;">
+                <div class="kpi-label">Follow Up</div>
+                <div class="kpi-number" style="color: #f39c12;">{follow_up_pct:.0f}%</div>
+                <div class="kpi-subtitle">{follow_up_count} members</div>
+                {wow_follow_up}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.session_state.expand_follow_up:
+            st.markdown(
+                "<p style='color: #f39c12; font-weight: 600;'>Follow Up (0% attendance - past 2 months)</p>",
+                unsafe_allow_html=True,
+            )
+            if status_col:
+                follow_up_data = work_df[work_df["status_type"] == "Follow Up"].copy()
+            else:
+                follow_up_data = work_df.iloc[
+                    new_count
+                    + regular_count
+                    + irregular_count : new_count
+                    + regular_count
+                    + irregular_count
+                    + follow_up_count
+                ].copy()
+            _member_tiles(follow_up_data, "#f39c12")
+
+    with col2:
+        if st.button("🔴 Red", key="btn_red", use_container_width=True):
+            st.session_state.expand_red = not st.session_state.expand_red
+        st.markdown(
+            f"""
+            <div class="kpi-card" style="cursor: pointer;">
+                <div class="kpi-label">Red</div>
+                <div class="kpi-number" style="color: #e74c3c;">{red_pct:.0f}%</div>
+                <div class="kpi-subtitle">{red_count} members</div>
+                {wow_red}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.session_state.expand_red:
+            st.markdown(
+                "<p style='color: #e74c3c; font-weight: 600;'>Red (Won't come to church anymore)</p>",
+                unsafe_allow_html=True,
+            )
+            if status_col:
+                red_data = work_df[work_df["status_type"] == "Red"].copy()
+            else:
+                red_data = work_df.iloc[
+                    new_count
+                    + regular_count
+                    + irregular_count
+                    + follow_up_count : new_count
+                    + regular_count
+                    + irregular_count
+                    + follow_up_count
+                    + red_count
+                ].copy()
+            _member_tiles(red_data, "#e74c3c")
+
+    st.markdown("")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("⭐ Graduated", key="btn_graduated", use_container_width=True):
+            st.session_state.expand_graduated = not st.session_state.expand_graduated
+        st.markdown(
+            f"""
+            <div class="kpi-card" style="cursor: pointer;">
+                <div class="kpi-label">Graduated</div>
+                <div class="kpi-number" style="color: #9b59b6;">{graduated_pct:.0f}%</div>
+                <div class="kpi-subtitle">{graduated_count} members</div>
+                {wow_graduated}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.session_state.expand_graduated:
+            st.markdown(
+                "<p style='color: #9b59b6; font-weight: 600;'>Graduated (Moved to leadership roles)</p>",
+                unsafe_allow_html=True,
+            )
+            if status_col:
+                graduated_data = work_df[work_df["status_type"] == "Graduated"].copy()
+            else:
+                graduated_data = work_df.iloc[
+                    new_count
+                    + regular_count
+                    + irregular_count
+                    + follow_up_count
+                    + red_count :
+                ].copy()
+            _member_tiles(graduated_data, "#9b59b6")
+
+    st.markdown("")
 
 
 def _render_cg_detailed_members_section(display_df, daily_colors):
@@ -910,6 +973,64 @@ def _nwst_cell_health_wow_color_for_delta(bucket_key, delta_n):
     if bucket_key == "new":
         return "#e74c3c" if delta_n > 0 else "#2ecc71"
     return "#2ecc71" if delta_n < 0 else "#e74c3c"
+
+
+def _nwst_cell_health_wow_pill_html(bucket_key, curr_agg, prev_agg):
+    """WoW delta pill HTML (arrow + member delta + pp delta) for one cell-health bucket."""
+
+    def _agg_n(agg, key):
+        if not agg:
+            return 0
+        if key == "follow_up":
+            return int(agg.get("follow up", 0) or 0)
+        return int(agg.get(key, 0) or 0)
+
+    d_mem = None
+    d_pp = None
+    if curr_agg and prev_agg:
+        c = _agg_n(curr_agg, bucket_key)
+        p = _agg_n(prev_agg, bucket_key)
+        d_mem = c - p
+        tot_c = _agg_n(curr_agg, "total")
+        tot_p = _agg_n(prev_agg, "total")
+        if tot_p > 0 and tot_c > 0:
+            d_pp = (100.0 * c / tot_c) - (100.0 * p / tot_p)
+
+    if curr_agg and prev_agg and d_mem is not None and d_pp is not None:
+        pp_sh = float(d_pp)
+        pp_str = f"{pp_sh:+.1f}%"
+        mem_str = f"{d_mem:+d}"
+        bubble_txt = html.escape(f"{mem_str} ({pp_str})", quote=True)
+        flat = d_mem == 0 and abs(pp_sh) < 0.05
+        if flat:
+            arrow = "·"
+            pill_cls = "ch-pill-flat"
+        elif d_mem == 0:
+            arrow = "·"
+            tone = _nwst_cell_health_wow_color_for_delta(bucket_key, pp_sh)
+            if tone == "#2ecc71":
+                pill_cls = "ch-pill-good"
+            elif tone == "#e74c3c":
+                pill_cls = "ch-pill-bad"
+            else:
+                pill_cls = "ch-pill-flat"
+        else:
+            arrow = "↑" if d_mem > 0 else "↓"
+            tone = _nwst_cell_health_wow_color_for_delta(bucket_key, d_mem)
+            if tone == "#2ecc71":
+                pill_cls = "ch-pill-good"
+            elif tone == "#e74c3c":
+                pill_cls = "ch-pill-bad"
+            else:
+                pill_cls = "ch-pill-flat"
+        return (
+            f'<div class="ch-pill-wrap"><span class="ch-pill {pill_cls}">'
+            f'<span class="ch-pill-arrow">{html.escape(arrow, quote=True)}</span>'
+            f"<span>{bubble_txt}</span>"
+            f"</span></div>"
+        )
+
+    return '<div class="ch-pill-wrap"><span class="ch-pill ch-pill-na">Need 2 log snapshots</span></div>'
 
 
 def _nwst_normalize_member_name(s):
@@ -1665,6 +1786,101 @@ def _resolve_cg_name_cell_columns(cg_df):
     if not cg_name_col:
         cg_name_col = cg_df.columns[0]
     return cg_name_col, cg_cell_col
+
+
+def _compute_attendance_stats_from_frames(att_df, cg_df):
+    """Build attendance_stats dict (Name + Cell key) from raw sheet frames."""
+    attendance_stats = {}
+    cg_name_col, cg_cell_col = _resolve_cg_name_cell_columns(cg_df)
+    att_name_col = att_df.columns[0] if len(att_df.columns) > 0 else None
+
+    if not att_name_col:
+        return attendance_stats
+
+    for att_name in att_df[att_name_col].unique():
+        if pd.isna(att_name) or att_name == "":
+            continue
+
+        att_name_str = str(att_name).strip()
+        member_att_data = att_df[att_df[att_name_col] == att_name]
+
+        attendance_count = 0
+        total_services = 0
+
+        for col_idx, col in enumerate(att_df.columns):
+            if col_idx >= 3:
+                total_services += 1
+                values = member_att_data[col].values
+                if len(values) > 0 and str(values[0]).strip() == "1":
+                    attendance_count += 1
+
+        cell_info = ""
+        if cg_name_col and cg_cell_col:
+            cg_match = cg_df[cg_df[cg_name_col].str.strip().str.lower() == att_name_str.lower()]
+            if not cg_match.empty:
+                cell_info = " - " + str(cg_match[cg_cell_col].iloc[0]).strip()
+
+        if total_services > 0:
+            key = att_name_str + cell_info
+            attendance_stats[key] = {
+                "attendance": attendance_count,
+                "total": total_services,
+                "percentage": round(attendance_count / total_services * 100) if total_services > 0 else 0,
+            }
+
+    return attendance_stats
+
+
+@st.cache_data(ttl=300)
+def get_attendance_data():
+    """Load attendance rollup from Redis cache or recompute from Attendance + CG Combined."""
+    redis = get_redis_client()
+    if redis:
+        try:
+            cached_data = redis.get("nwst_attendance_stats")
+            if cached_data:
+                return json.loads(cached_data)
+        except Exception:
+            pass
+
+    att_df, cg_df = load_attendance_and_cg_dataframes()
+    if att_df is None or cg_df is None:
+        return {}
+
+    attendance_stats = _compute_attendance_stats_from_frames(att_df, cg_df)
+
+    if redis:
+        try:
+            redis.set("nwst_attendance_stats", json.dumps(attendance_stats), ex=300)
+        except Exception:
+            pass
+
+    return attendance_stats
+
+
+def get_attendance_text(name, cell, attendance_stats):
+    """Attendance summary for tooltips (Name + Cell key), or name only if unknown."""
+    if not attendance_stats:
+        return name
+
+    name_stripped = str(name).strip()
+    cell_stripped = str(cell).strip() if cell else ""
+
+    if cell_stripped:
+        key = f"{name_stripped} - {cell_stripped}"
+    else:
+        key = name_stripped
+
+    if key in attendance_stats:
+        stats = attendance_stats[key]
+        return f"{name} - {stats['attendance']}/{stats['total']} ({stats['percentage']}%)"
+
+    key_lower = key.lower()
+    for dict_key, stats in attendance_stats.items():
+        if dict_key.lower() == key_lower:
+            return f"{name} - {stats['attendance']}/{stats['total']} ({stats['percentage']}%)"
+
+    return name
 
 
 def categorize_member_status(attendance_count, total_possible):
@@ -3684,6 +3900,7 @@ if current_page == "cg":
     st.markdown("")
     try:
         newcomers_df = get_newcomers_data()
+        attendance_stats = get_attendance_data()
 
         if not newcomers_df.empty:
             # Get unique cell names for filtering
@@ -3730,7 +3947,7 @@ if current_page == "cg":
                     display_df = display_df[display_df[status_columns[0]] == status_filter]
 
             # CELL HEALTH — quick view (Historical Cell Status WoW + live CG Combined mix)
-            _render_cg_cell_health_section(display_df, daily_colors, cell_filter)
+            _render_cg_cell_health_section(display_df, daily_colors, cell_filter, attendance_stats)
 
             with st.expander("👤 INDIVIDUAL ATTENDANCE", expanded=False):
                 if not display_df.empty:
