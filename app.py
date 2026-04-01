@@ -1057,10 +1057,15 @@ def _nwst_hist_cell_wow_for_scope(hist_df, cell_filter):
 
 
 def _nwst_cell_health_wow_color_for_delta(bucket_key, delta_n):
-    """Regular, graduated, new: more members = good (green). Risk-style buckets: fewer = good (green)."""
-    if delta_n is None or (isinstance(delta_n, float) and pd.isna(delta_n)) or delta_n == 0:
+    """Regular, graduated: more members = good (green). New: any non‑zero change = good (green); 0 = red.
+    Risk-style buckets: fewer = good (green)."""
+    if delta_n is None or (isinstance(delta_n, float) and pd.isna(delta_n)):
         return "#aaaaaa"
-    if bucket_key in ("regular", "graduated", "new"):
+    if bucket_key == "new":
+        return "#2ecc71" if delta_n != 0 else "#e74c3c"
+    if delta_n == 0:
+        return "#aaaaaa"
+    if bucket_key in ("regular", "graduated"):
         return "#2ecc71" if delta_n > 0 else "#e74c3c"
     return "#2ecc71" if delta_n < 0 else "#e74c3c"
 
@@ -1092,7 +1097,14 @@ def _nwst_cell_health_wow_pill_html(bucket_key, curr_agg, prev_agg):
         mem_str = f"{d_mem:+d}"
         bubble_txt = html.escape(f"{mem_str} ({pp_str})", quote=True)
         flat = d_mem == 0 and abs(pp_sh) < 0.05
-        if flat:
+        if bucket_key == "new":
+            if d_mem == 0:
+                arrow = "·"
+                pill_cls = "ch-pill-bad"
+            else:
+                arrow = "↑" if d_mem > 0 else "↓"
+                pill_cls = "ch-pill-good"
+        elif flat:
             arrow = "·"
             pill_cls = "ch-pill-flat"
         elif d_mem == 0:
