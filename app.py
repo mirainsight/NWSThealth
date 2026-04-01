@@ -319,7 +319,8 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     color: {prim};
     text-transform: uppercase;
     letter-spacing: 0.16em;
-    margin: 0 0 0.5rem 0;
+    margin: 0 0 1.35rem 0;
+    display: block;
   }}
   /* Streamlit often draws a grey frame around markdown HTML — strip it for cell-health KPI cards */
   [data-testid="stMarkdownContainer"]:has(.ch-kpi-card-embed),
@@ -1755,13 +1756,6 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
     if not zone_plots:
         st.info("No cells to chart after filters.")
         return
-
-    st.markdown(
-        f"<p style='color: #999999; font-family: Inter, sans-serif; font-size: 0.85rem; margin: 0 0 0.75rem 0;'>"
-        f"Uses your <b>Cell</b> and <b>Status</b> picks. Each line is one cell — each dot is "
-        f"<b>the % of that cell who came</b> that Saturday, out of everyone in that cell on your list.</p>",
-        unsafe_allow_html=True,
-    )
 
     if tab_each_cell_when_all:
         cell_entries = []
