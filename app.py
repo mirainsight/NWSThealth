@@ -616,14 +616,7 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
                 ].copy()
             _member_tiles(red_data, "#e74c3c")
 
-    # Row 2, column 3 — reserved for future KPIs (3×3 grid alignment)
     with col3:
-        pass
-
-    st.markdown("")
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
         if st.button("⭐ Graduated", key="btn_graduated", use_container_width=True):
             st.session_state.expand_graduated = not st.session_state.expand_graduated
         st.markdown(
@@ -648,12 +641,6 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
                     + red_count :
                 ].copy()
             _member_tiles(graduated_data, "#9b59b6")
-
-    # Row 3, columns 2–3 — reserved for future KPIs (3×3 grid alignment)
-    with col2:
-        pass
-    with col3:
-        pass
 
     st.markdown("")
 
