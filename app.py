@@ -253,7 +253,7 @@ def _render_cg_leadership_section(display_df, cell_filter, cell_columns, daily_c
 
 
 def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", attendance_stats=None):
-    """Cell health mix — ref.py kpi column layout + Historical Cell Status WoW pills + expandable name tiles."""
+    """Cell health — KPI column layout + Historical Cell Status WoW pills + expandable name tiles."""
     if attendance_stats is None:
         attendance_stats = {}
 
@@ -289,12 +289,29 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
 
     total_members = new_count + regular_count + irregular_count + follow_up_count + red_count + graduated_count
 
-    new_pct = (new_count / total_members * 100) if total_members > 0 else 0
-    regular_pct = (regular_count / total_members * 100) if total_members > 0 else 0
-    irregular_pct = (irregular_count / total_members * 100) if total_members > 0 else 0
-    follow_up_pct = (follow_up_count / total_members * 100) if total_members > 0 else 0
-    red_pct = (red_count / total_members * 100) if total_members > 0 else 0
-    graduated_pct = (graduated_count / total_members * 100) if total_members > 0 else 0
+    _cell_scoped = (
+        cell_filter is not None
+        and str(cell_filter).strip()
+        and str(cell_filter).strip().lower() != "all"
+    )
+    if _cell_scoped:
+        mix_denom = new_count + regular_count + irregular_count + follow_up_count
+        if mix_denom > 0:
+            new_pct = new_count / mix_denom * 100
+            regular_pct = regular_count / mix_denom * 100
+            irregular_pct = irregular_count / mix_denom * 100
+            follow_up_pct = follow_up_count / mix_denom * 100
+        else:
+            new_pct = regular_pct = irregular_pct = follow_up_pct = 0.0
+        red_pct = 0.0
+        graduated_pct = 0.0
+    else:
+        new_pct = (new_count / total_members * 100) if total_members > 0 else 0
+        regular_pct = (regular_count / total_members * 100) if total_members > 0 else 0
+        irregular_pct = (irregular_count / total_members * 100) if total_members > 0 else 0
+        follow_up_pct = (follow_up_count / total_members * 100) if total_members > 0 else 0
+        red_pct = (red_count / total_members * 100) if total_members > 0 else 0
+        graduated_pct = (graduated_count / total_members * 100) if total_members > 0 else 0
 
     hist_df = load_historical_cell_status_dataframe()
     curr_agg, prev_agg = None, None
@@ -433,7 +450,7 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     opacity: 0.95;
   }}
 </style>
-<p class="ch-head-nwst">Cell health mix</p>
+<p class="ch-head-nwst">Cell health</p>
 """,
         unsafe_allow_html=True,
     )
@@ -493,7 +510,10 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
         if _sk not in st.session_state:
             st.session_state[_sk] = False
 
-    col1, col2, col3 = st.columns(3)
+    if _cell_scoped:
+        col1, col2, col3, col4 = st.columns(4)
+    else:
+        col1, col2, col3 = st.columns(3)
 
     with col1:
         if st.button("🔵 New", key="btn_new", use_container_width=True):
@@ -559,88 +579,116 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
                 ].copy()
             _member_tiles(irregular_data, "#e67e22")
 
-    st.markdown("")
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("🟡 Follow Up", key="btn_follow_up", use_container_width=True):
-            st.session_state.expand_follow_up = not st.session_state.expand_follow_up
-        st.markdown(
-            _cell_health_mix_card_html(
-                "#f39c12", "Follow Up", follow_up_pct, follow_up_count, wow_follow_up
-            ),
-            unsafe_allow_html=True,
-        )
-        if st.session_state.expand_follow_up:
+    if _cell_scoped:
+        with col4:
+            if st.button("🟡 Follow Up", key="btn_follow_up", use_container_width=True):
+                st.session_state.expand_follow_up = not st.session_state.expand_follow_up
             st.markdown(
-                "<p style='color: #f39c12; font-weight: 600;'>Follow Up (0% attendance - past 2 months)</p>",
+                _cell_health_mix_card_html(
+                    "#f39c12", "Follow Up", follow_up_pct, follow_up_count, wow_follow_up
+                ),
                 unsafe_allow_html=True,
             )
-            if status_col:
-                follow_up_data = work_df[work_df["status_type"] == "Follow Up"].copy()
-            else:
-                follow_up_data = work_df.iloc[
-                    new_count
-                    + regular_count
-                    + irregular_count : new_count
-                    + regular_count
-                    + irregular_count
-                    + follow_up_count
-                ].copy()
-            _member_tiles(follow_up_data, "#f39c12")
+            if st.session_state.expand_follow_up:
+                st.markdown(
+                    "<p style='color: #f39c12; font-weight: 600;'>Follow Up (0% attendance - past 2 months)</p>",
+                    unsafe_allow_html=True,
+                )
+                if status_col:
+                    follow_up_data = work_df[work_df["status_type"] == "Follow Up"].copy()
+                else:
+                    follow_up_data = work_df.iloc[
+                        new_count
+                        + regular_count
+                        + irregular_count : new_count
+                        + regular_count
+                        + irregular_count
+                        + follow_up_count
+                    ].copy()
+                _member_tiles(follow_up_data, "#f39c12")
+    else:
+        st.markdown("")
+        col1, col2, col3 = st.columns(3)
 
-    with col2:
-        if st.button("🔴 Red", key="btn_red", use_container_width=True):
-            st.session_state.expand_red = not st.session_state.expand_red
-        st.markdown(
-            _cell_health_mix_card_html("#e74c3c", "Red", red_pct, red_count, wow_red),
-            unsafe_allow_html=True,
-        )
-        if st.session_state.expand_red:
+        with col1:
+            if st.button("🟡 Follow Up", key="btn_follow_up", use_container_width=True):
+                st.session_state.expand_follow_up = not st.session_state.expand_follow_up
             st.markdown(
-                "<p style='color: #e74c3c; font-weight: 600;'>Red (Won't come to church anymore)</p>",
+                _cell_health_mix_card_html(
+                    "#f39c12", "Follow Up", follow_up_pct, follow_up_count, wow_follow_up
+                ),
                 unsafe_allow_html=True,
             )
-            if status_col:
-                red_data = work_df[work_df["status_type"] == "Red"].copy()
-            else:
-                red_data = work_df.iloc[
-                    new_count
-                    + regular_count
-                    + irregular_count
-                    + follow_up_count : new_count
-                    + regular_count
-                    + irregular_count
-                    + follow_up_count
-                    + red_count
-                ].copy()
-            _member_tiles(red_data, "#e74c3c")
+            if st.session_state.expand_follow_up:
+                st.markdown(
+                    "<p style='color: #f39c12; font-weight: 600;'>Follow Up (0% attendance - past 2 months)</p>",
+                    unsafe_allow_html=True,
+                )
+                if status_col:
+                    follow_up_data = work_df[work_df["status_type"] == "Follow Up"].copy()
+                else:
+                    follow_up_data = work_df.iloc[
+                        new_count
+                        + regular_count
+                        + irregular_count : new_count
+                        + regular_count
+                        + irregular_count
+                        + follow_up_count
+                    ].copy()
+                _member_tiles(follow_up_data, "#f39c12")
 
-    with col3:
-        if st.button("⭐ Graduated", key="btn_graduated", use_container_width=True):
-            st.session_state.expand_graduated = not st.session_state.expand_graduated
-        st.markdown(
-            _cell_health_mix_card_html(
-                "#9b59b6", "Graduated", graduated_pct, graduated_count, wow_graduated
-            ),
-            unsafe_allow_html=True,
-        )
-        if st.session_state.expand_graduated:
+        with col2:
+            if st.button("🔴 Red", key="btn_red", use_container_width=True):
+                st.session_state.expand_red = not st.session_state.expand_red
             st.markdown(
-                "<p style='color: #9b59b6; font-weight: 600;'>Graduated (Moved to leadership roles)</p>",
+                _cell_health_mix_card_html("#e74c3c", "Red", red_pct, red_count, wow_red),
                 unsafe_allow_html=True,
             )
-            if status_col:
-                graduated_data = work_df[work_df["status_type"] == "Graduated"].copy()
-            else:
-                graduated_data = work_df.iloc[
-                    new_count
-                    + regular_count
-                    + irregular_count
-                    + follow_up_count
-                    + red_count :
-                ].copy()
-            _member_tiles(graduated_data, "#9b59b6")
+            if st.session_state.expand_red:
+                st.markdown(
+                    "<p style='color: #e74c3c; font-weight: 600;'>Red (Won't come to church anymore)</p>",
+                    unsafe_allow_html=True,
+                )
+                if status_col:
+                    red_data = work_df[work_df["status_type"] == "Red"].copy()
+                else:
+                    red_data = work_df.iloc[
+                        new_count
+                        + regular_count
+                        + irregular_count
+                        + follow_up_count : new_count
+                        + regular_count
+                        + irregular_count
+                        + follow_up_count
+                        + red_count
+                    ].copy()
+                _member_tiles(red_data, "#e74c3c")
+
+        with col3:
+            if st.button("⭐ Graduated", key="btn_graduated", use_container_width=True):
+                st.session_state.expand_graduated = not st.session_state.expand_graduated
+            st.markdown(
+                _cell_health_mix_card_html(
+                    "#9b59b6", "Graduated", graduated_pct, graduated_count, wow_graduated
+                ),
+                unsafe_allow_html=True,
+            )
+            if st.session_state.expand_graduated:
+                st.markdown(
+                    "<p style='color: #9b59b6; font-weight: 600;'>Graduated (Moved to leadership roles)</p>",
+                    unsafe_allow_html=True,
+                )
+                if status_col:
+                    graduated_data = work_df[work_df["status_type"] == "Graduated"].copy()
+                else:
+                    graduated_data = work_df.iloc[
+                        new_count
+                        + regular_count
+                        + irregular_count
+                        + follow_up_count
+                        + red_count :
+                    ].copy()
+                _member_tiles(graduated_data, "#9b59b6")
 
     st.markdown("")
 
@@ -1009,15 +1057,11 @@ def _nwst_hist_cell_wow_for_scope(hist_df, cell_filter):
 
 
 def _nwst_cell_health_wow_color_for_delta(bucket_key, delta_n):
-    """Regular: down = bad (red). Risk buckets + New: down = good (green)."""
+    """Regular, graduated, new: more members = good (green). Risk-style buckets: fewer = good (green)."""
     if delta_n is None or (isinstance(delta_n, float) and pd.isna(delta_n)) or delta_n == 0:
         return "#aaaaaa"
-    if bucket_key == "regular":
+    if bucket_key in ("regular", "graduated", "new"):
         return "#2ecc71" if delta_n > 0 else "#e74c3c"
-    if bucket_key == "graduated":
-        return "#2ecc71" if delta_n > 0 else "#e74c3c"
-    if bucket_key == "new":
-        return "#e74c3c" if delta_n > 0 else "#2ecc71"
     return "#2ecc71" if delta_n < 0 else "#e74c3c"
 
 
@@ -1596,9 +1640,8 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
                 y=sub[NWST_ATTENDED_CELL_MEMBERS_COL],
                 name=str(cg),
                 legendgroup=str(cg),
-                mode="lines+markers",
-                line=dict(width=2.4, color=c, shape="linear"),
-                marker=dict(size=8, color=c, line=dict(width=2, color="#ffffff")),
+                mode="lines",
+                line=dict(width=2, color=c, shape="linear"),
                 hovertemplate=(
                     "<b>%{fullData.name}</b><br>%{x}<br>"
                     "<b>%{y:.0f}</b> attended<extra></extra>"
