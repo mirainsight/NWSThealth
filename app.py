@@ -321,6 +321,15 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     letter-spacing: 0.16em;
     margin: 0 0 0.5rem 0;
   }}
+  /* Streamlit often draws a grey frame around markdown HTML — strip it for cell-health KPI cards */
+  [data-testid="stMarkdownContainer"]:has(.ch-kpi-card-embed),
+  [data-testid="stMarkdownContainer"]:has(.ch-kpi-card-embed) > div,
+  [data-testid="element-container"]:has(.ch-kpi-card-embed) {{
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
+  }}
   .ch-kpi-wow-row {{
     display: flex;
     flex-direction: row;
@@ -336,10 +345,17 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     flex: 0 1 auto;
   }}
   .ch-kpi-wow-row .ch-pill-wrap {{
-    margin-top: 0;
-    flex: 0 1 auto;
+    display: inline-flex !important;
+    width: fit-content !important;
+    max-width: 100%;
+    margin: 0 !important;
+    padding: 0 !important;
+    flex: 0 0 auto;
     min-width: 0;
     align-self: center;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
   }}
   .ch-pill.ch-pill--hero {{
     font-size: clamp(0.88rem, 1.55vw, 1.12rem);
@@ -350,21 +366,21 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     border: none;
     outline: none;
   }}
-  /* Single pill only — soft glow ring, no outer grey box */
+  /* Hero WoW: glow only — no 1px ring (reads as a second “frame”) */
   .ch-pill.ch-pill--hero.ch-pill-good {{
-    box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.35), 0 0 32px rgba(94, 234, 212, 0.28);
+    box-shadow: 0 0 28px rgba(94, 234, 212, 0.38);
     text-shadow: 0 0 12px rgba(94, 234, 212, 0.45);
   }}
   .ch-pill.ch-pill--hero.ch-pill-bad {{
-    box-shadow: 0 0 0 1px rgba(253, 164, 175, 0.35), 0 0 26px rgba(253, 164, 175, 0.22);
+    box-shadow: 0 0 24px rgba(253, 164, 175, 0.28);
     text-shadow: 0 0 10px rgba(253, 164, 175, 0.35);
   }}
   .ch-pill.ch-pill--hero.ch-pill-flat {{
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+    box-shadow: none;
     background: rgba(42, 42, 42, 0.95);
   }}
   .ch-pill.ch-pill--hero.ch-pill-na {{
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+    box-shadow: none;
     background: #2a2a2a;
   }}
   .ch-pill--hero .ch-pill-arrow {{
@@ -456,7 +472,7 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
         ae = html.escape(accent_hex, quote=True)
         kl = html.escape(kpi_label, quote=True)
         return f"""
-            <div class="kpi-card" style="cursor: pointer;">
+            <div class="kpi-card ch-kpi-card-embed" style="cursor: pointer;">
                 <div class="kpi-label">{kl}</div>
                 <div class="ch-kpi-wow-row">
                     <div class="kpi-number" style="color: {ae};">{pct_val:.0f}%</div>
