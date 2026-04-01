@@ -13,7 +13,6 @@ import json
 from collections import defaultdict
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from upstash_redis import Redis
 
 # Same spreadsheet as CG Combined / Attendance (NWST Health)
@@ -1527,20 +1526,22 @@ def _nwst_weekly_contrasting_line_colors(primary_hex, n_series):
     return out
 
 
-_BAR_BG_OPACITY = 0.25
 NWST_ATTENDED_CELL_MEMBERS_COL = "Attended cell members"
+# 0 = use every Saturday column from Attendance (widest time window on the chart).
+NWST_SERVICE_ATTENDANCE_CHART_MAX_WEEKS = 0
 
 
-def _nwst_secondary_y_max(raw_max, multiplier=1.45, pad_ratio=0.08):
-    """Looser top end for the background (secondary) axis."""
-    if raw_max <= 0:
-        return 1
-    m = int(raw_max)
-    return max(int(m * multiplier + max(3, round(m * pad_ratio))), 1)
+def _nwst_count_y_axis_max(plot_df):
+    col = NWST_ATTENDED_CELL_MEMBERS_COL
+    max_att = float(plot_df[col].max()) if not plot_df.empty else 0.0
+    if max_att <= 0:
+        return 5
+    headroom = max(2.0, round(max_att * 0.16, 1))
+    return int(max_att + headroom)
 
 
-def _nwst_make_attendance_rate_fig(plot_df, date_cols, ymax, colors, daily_colors):
-    """Saturday attendance rate (lines, foreground) and attended count (faint bars, background)."""
+def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
+    """Minimal line chart: attended cell members per Saturday (one line per cell group)."""
     plot_df = plot_df.copy()
     if NWST_ATTENDED_CELL_MEMBERS_COL not in plot_df.columns:
         plot_df[NWST_ATTENDED_CELL_MEMBERS_COL] = 0
@@ -1552,28 +1553,8 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, ymax, colors, daily_color
     cell_order = sorted(plot_df["Cell Group"].unique(), key=str.lower)
     cg_to_color = {cg: line_colors[i] for i, cg in enumerate(cell_order)}
 
-    max_att = int(plot_df[NWST_ATTENDED_CELL_MEMBERS_COL].max()) if not plot_df.empty else 0
-    y2_max = _nwst_secondary_y_max(max_att)
-
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-
-    for cg in cell_order:
-        sub = plot_df[plot_df["Cell Group"] == cg]
-        c = cg_to_color[cg]
-        fig.add_trace(
-            go.Bar(
-                x=sub["Saturday"],
-                y=sub[NWST_ATTENDED_CELL_MEMBERS_COL],
-                name=str(cg),
-                legendgroup=str(cg),
-                marker=dict(color=c, opacity=_BAR_BG_OPACITY, line=dict(width=0)),
-                hovertemplate=(
-                    "<b>%{fullData.name}</b><br>%{x}<br>Attended cell members: %{y}<extra></extra>"
-                ),
-                showlegend=False,
-            ),
-            secondary_y=True,
-        )
+    y_max = _nwst_count_y_axis_max(plot_df)
+    fig = go.Figure()
 
     for cg in cell_order:
         sub = plot_df[plot_df["Cell Group"] == cg]
@@ -1581,92 +1562,92 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, ymax, colors, daily_color
         fig.add_trace(
             go.Scatter(
                 x=sub["Saturday"],
-                y=sub["Attendance rate %"],
+                y=sub[NWST_ATTENDED_CELL_MEMBERS_COL],
                 name=str(cg),
                 legendgroup=str(cg),
-                mode="lines+markers",
-                line=dict(width=3.5, color=c),
-                marker=dict(size=5, line=dict(width=1, color="#FFFFFF"), color=c),
+                mode="lines",
+                line=dict(width=2.75, color=c, shape="linear"),
                 hovertemplate=(
-                    "<b>%{fullData.name}</b><br>%{x}<br><b>%{y:.1f}%</b> of filtered cell showed up<extra></extra>"
+                    "<b>%{fullData.name}</b><br>%{x}<br>"
+                    "<b>%{y:.0f}</b> attended<extra></extra>"
                 ),
-            ),
-            secondary_y=False,
+            )
         )
 
-    fig.add_hline(
-        y=50,
-        line_dash="dot",
-        line_color=colors["text_muted"],
-        line_width=1,
-        opacity=0.55,
-        annotation_text="50%",
-        annotation_position="right",
-        annotation_font_color=colors["text_muted"],
-        annotation_font_size=11,
-        secondary_y=False,
-    )
+    if len(date_cols) > 1:
+        x_tickvals = [date_cols[0], date_cols[-1]]
+        x_ticktext = [date_cols[0], date_cols[-1]]
+    else:
+        x_tickvals = list(date_cols)
+        x_ticktext = list(date_cols)
 
+    line_muted = "rgba(255,255,255,0.22)"
     fig.update_layout(
-        height=460,
+        height=500,
         legend_title_text="",
-        plot_bgcolor=colors["background"],
-        paper_bgcolor=colors["card_bg"],
-        font=dict(family="Inter, sans-serif", size=13, color=colors["primary"]),
-        barmode="group",
+        plot_bgcolor="#000000",
+        paper_bgcolor="#000000",
+        font=dict(family="Inter, sans-serif", size=12, color=colors["text"]),
         legend=dict(
             orientation="h",
             yanchor="top",
-            y=-0.28,
+            y=-0.16,
             xanchor="center",
             x=0.5,
-            font=dict(size=12, color=colors["text"], family="Inter"),
+            font=dict(size=11, color=colors["text_muted"], family="Inter"),
             bgcolor="rgba(0,0,0,0)",
             borderwidth=0,
         ),
+        hovermode="x unified",
+        hoverdistance=24,
+        spikedistance=-1,
         hoverlabel=dict(
-            bgcolor=colors["card_bg"],
-            font=dict(size=13, color=colors["primary"], family="Inter"),
-            bordercolor=colors["primary"],
+            bgcolor="#2a2a2a",
+            font=dict(size=13, color=colors["text"], family="Inter"),
+            bordercolor="rgba(255,255,255,0.2)",
+            align="left",
         ),
-        margin=dict(l=55, r=72, t=28, b=150),
+        margin=dict(l=48, r=16, t=12, b=72),
     )
     fig.update_xaxes(
-        title=dict(text="Saturday service", font=dict(size=12)),
-        tickfont=dict(color=colors["text"], family="Inter", size=11),
-        gridcolor=colors["text_muted"],
-        gridwidth=1,
-        linecolor=colors["primary"],
-        linewidth=2,
-        tickangle=-30,
-        categoryorder="array",
-        categoryarray=date_cols,
-    )
-    fig.update_yaxes(
-        title=dict(text="How much of the cell came?", font=dict(size=12)),
-        tickfont=dict(color=colors["text"], family="Inter", size=11),
-        ticksuffix="%",
-        gridcolor=colors["text_muted"],
-        gridwidth=1,
-        linecolor=colors["primary"],
-        linewidth=2,
-        range=[0, ymax],
-        secondary_y=False,
-        showgrid=True,
-    )
-    fig.update_yaxes(
-        title=dict(text="Attended cell members", font=dict(size=12)),
+        title=dict(text=""),
         tickfont=dict(color=colors["text_muted"], family="Inter", size=11),
-        range=[0, y2_max],
-        secondary_y=True,
         showgrid=False,
         zeroline=False,
+        linecolor=line_muted,
+        linewidth=1,
+        mirror=False,
+        tickmode="array",
+        tickvals=x_tickvals,
+        ticktext=x_ticktext,
+        categoryorder="array",
+        categoryarray=date_cols,
+        tickangle=0,
+        showspikes=True,
+        spikecolor="rgba(255,255,255,0.9)",
+        spikesnap="cursor",
+        spikemode="across",
+        spikethickness=1,
+        spikedash="solid",
+    )
+    fig.update_yaxes(
+        title=dict(
+            text="Attended cell members",
+            font=dict(size=11, color=colors["text_muted"]),
+        ),
+        tickfont=dict(color=colors["text_muted"], family="Inter", size=11),
+        showgrid=False,
+        zeroline=False,
+        linecolor=line_muted,
+        linewidth=1,
+        range=[0, y_max],
+        nticks=5,
     )
     return fig
 
 
 def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_each_cell_when_all=False):
-    """Per-zone Saturday attendance rate lines — filtered by current display_df (global Cell / Status).
+    """Per-zone Saturday attendance (headcount lines) — filtered by current display_df (global Cell / Status).
 
     When ``tab_each_cell_when_all`` is True and multiple cell groups are shown, each cell gets its own tab
     instead of stacking tall charts.
@@ -1725,6 +1706,13 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
             continue
         zone_to_cells[z].append(cg)
 
+    chart_date_cols = list(date_cols)
+    if (
+        NWST_SERVICE_ATTENDANCE_CHART_MAX_WEEKS
+        and len(chart_date_cols) > NWST_SERVICE_ATTENDANCE_CHART_MAX_WEEKS
+    ):
+        chart_date_cols = chart_date_cols[-NWST_SERVICE_ATTENDANCE_CHART_MAX_WEEKS :]
+
     zone_plots = {}
     for zone in sorted(zone_to_cells.keys(), key=str.lower):
         cells = sorted(zone_to_cells[zone], key=str.lower)
@@ -1736,7 +1724,7 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
                 mc = sub["Name"].nunique()
             if mc == 0:
                 continue
-            for dc in date_cols:
+            for dc in chart_date_cols:
                 attended = int(sub[dc].sum()) if dc in sub.columns else 0
                 pct = 100.0 * attended / mc
                 long_rows.append(
@@ -1750,8 +1738,7 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
         plot_df = pd.DataFrame(long_rows)
         if plot_df.empty:
             continue
-        ymax = max(105.0, plot_df["Attendance rate %"].max() * 1.08)
-        zone_plots[zone] = (plot_df, ymax)
+        zone_plots[zone] = plot_df
 
     if not zone_plots:
         st.info("No cells to chart after filters.")
@@ -1768,7 +1755,7 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
                 if mc == 0:
                     continue
                 long_rows = []
-                for dc in date_cols:
+                for dc in chart_date_cols:
                     attended = int(sub[dc].sum()) if dc in sub.columns else 0
                     pct = 100.0 * attended / mc
                     long_rows.append(
@@ -1782,39 +1769,38 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
                 plot_df_one = pd.DataFrame(long_rows)
                 if plot_df_one.empty:
                     continue
-                ymax_one = max(105.0, plot_df_one["Attendance rate %"].max() * 1.08)
-                cell_entries.append((cg, plot_df_one, ymax_one))
+                cell_entries.append((cg, plot_df_one))
         cell_entries.sort(key=lambda x: str(x[0]).lower())
         if len(cell_entries) > 1:
-            _tab_labels = [str(cg) for cg, _, _ in cell_entries]
+            _tab_labels = [str(cg) for cg, _ in cell_entries]
             _cg_tabs = st.tabs(_tab_labels)
-            for _i, (_, plot_df_one, ymax_one) in enumerate(cell_entries):
+            for _i, (_, plot_df_one) in enumerate(cell_entries):
                 with _cg_tabs[_i]:
                     fig = _nwst_make_attendance_rate_fig(
-                        plot_df_one, date_cols, ymax_one, colors, daily_colors
+                        plot_df_one, chart_date_cols, colors, daily_colors
                     )
                     st.plotly_chart(fig, use_container_width=True)
             st.caption(
-                "Faint bars (right axis): attended cell members (numerator for %). "
-                "Tip: switch tabs to compare cell groups — rightmost dot is the latest Saturday."
+                "Hover for counts — a vertical guide follows the pointer. "
+                "Switch tabs to compare cells; the latest Saturday is the right end of each line."
             )
             return
 
     zone_tab_names = sorted(zone_plots.keys(), key=str.lower)
     for zone in zone_tab_names:
-        plot_df, ymax = zone_plots[zone]
+        plot_df = zone_plots[zone]
         if len(zone_tab_names) > 1:
             st.markdown(
                 f"<p style='color: {daily_colors['primary']}; font-weight: 700; font-size: 1rem; margin: 0.75rem 0 0.35rem 0;'>"
                 f"{zone}</p>",
                 unsafe_allow_html=True,
             )
-        fig = _nwst_make_attendance_rate_fig(plot_df, date_cols, ymax, colors, daily_colors)
+        fig = _nwst_make_attendance_rate_fig(plot_df, chart_date_cols, colors, daily_colors)
         st.plotly_chart(fig, use_container_width=True)
 
     st.caption(
-        "Faint bars (right axis): attended cell members (numerator for %). "
-        "Tip: follow one line color across the weeks — rightmost dot is the latest Saturday."
+        "Hover for counts — a vertical guide follows the pointer. "
+        "Each line is one cell; the latest Saturday is the right end of the series."
     )
 
 
