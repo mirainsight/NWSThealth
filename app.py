@@ -321,52 +321,22 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     letter-spacing: 0.16em;
     margin: 0 0 0.5rem 0;
   }}
-  .ch-cell-health-card {{
-    overflow: hidden;
-  }}
-  .ch-cell-health-banner {{
-    display: flex;
+  .ch-wow-banner {{
+    display: inline-flex;
     align-items: center;
-    gap: 0.55rem;
-    padding: 0.9rem 1.15rem 1rem;
-    margin: -2rem -2.5rem 0.9rem -2.5rem;
-    border-left: 6px solid;
+    justify-content: flex-start;
+    padding: 0.4rem 0.65rem 0.42rem 0.75rem;
+    border-radius: 10px;
+    background: linear-gradient(105deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.02) 100%);
+    border: 1px solid rgba(255,255,255,0.14);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 4px 14px rgba(0,0,0,0.2);
     box-sizing: border-box;
-    border-bottom: 1px solid rgba(255,255,255,0.07);
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
   }}
-  .ch-cell-health-banner-title {{
-    font-family: 'Inter', sans-serif;
-    font-size: clamp(1.2rem, 2.8vw, 1.75rem);
-    font-weight: 800;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    line-height: 1.12;
-  }}
-  .ch-cell-health-banner-emoji {{
-    font-size: clamp(1.25rem, 3.2vw, 1.65rem);
-    line-height: 1;
-    flex-shrink: 0;
-  }}
-  p.ch-health-toggle-anchor {{
-    display: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    height: 0 !important;
-    overflow: hidden !important;
-  }}
-  div[data-testid="column"] div[data-testid="element-container"]:has(p.ch-health-toggle-anchor)
-    + div[data-testid="element-container"] button {{
-    min-height: 2.85rem !important;
-    padding: 0.55rem 0.9rem !important;
-    font-size: 1.02rem !important;
-    font-weight: 650 !important;
-    border-radius: 6px !important;
-  }}
-  @media (max-width: 768px) {{
-    .ch-cell-health-banner {{
-      margin: -1rem -1.25rem 0.7rem -1.25rem;
-      padding: 0.7rem 0.9rem 0.8rem;
-    }}
+  .ch-wow-banner .ch-pill-wrap {{
+    margin: 0;
   }}
   .ch-kpi-wow-row {{
     display: flex;
@@ -389,12 +359,14 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     align-self: center;
   }}
   .ch-pill.ch-pill--hero {{
-    font-size: clamp(0.65rem, 1.15vw, 0.8rem);
-    padding: 0.2rem 0.55rem 0.22rem;
-    gap: 0.28rem;
+    font-size: clamp(0.88rem, 1.55vw, 1.12rem);
+    padding: 0.28rem 0.72rem 0.3rem;
+    gap: 0.34rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
   }}
   .ch-pill--hero .ch-pill-arrow {{
-    font-size: 0.88em;
+    font-size: 0.95em;
   }}
   .ch-pill-wrap {{ margin-top: 0.35rem; line-height: 1; max-width: 100%; }}
   .ch-pill {{
@@ -478,25 +450,17 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
         else:
             st.dataframe(data_df, use_container_width=True)
 
-    def _cell_health_kpi_card_html(banner_emoji, banner_title, accent_hex, kpi_label, pct_val, n_members, wow_fragment):
+    def _cell_health_mix_card_html(accent_hex, kpi_label, pct_val, n_members, wow_fragment):
         ae = html.escape(accent_hex, quote=True)
-        bt = html.escape(banner_title, quote=True)
         kl = html.escape(kpi_label, quote=True)
-        bg = f"linear-gradient(105deg, {accent_hex}38 0%, {accent_hex}12 38%, transparent 72%)"
-        bg_e = html.escape(bg, quote=True)
         return f"""
-            <div class="kpi-card ch-cell-health-card" style="cursor: pointer;">
-                <div class="ch-cell-health-banner" style="border-left-color: {ae}; background: {bg_e};">
-                    <span class="ch-cell-health-banner-emoji">{banner_emoji}</span>
-                    <span class="ch-cell-health-banner-title" style="color: {ae}; text-shadow: 0 0 22px currentColor, 0 2px 12px rgba(0,0,0,0.45);">{bt}</span>
-                </div>
+            <div class="kpi-card" style="cursor: pointer;">
                 <div class="kpi-label">{kl}</div>
                 <div class="ch-kpi-wow-row">
                     <div class="kpi-number" style="color: {ae};">{pct_val:.0f}%</div>
                     {wow_fragment}
                 </div>
                 <div class="kpi-subtitle">{n_members} members</div>
-                <p class="ch-health-toggle-anchor"></p>
             </div>
             """
 
@@ -514,16 +478,12 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     col1, col2, col3 = st.columns(3)
 
     with col1:
+        if st.button("🔵 New", key="btn_new", use_container_width=True):
+            st.session_state.expand_new = not st.session_state.expand_new
         st.markdown(
-            _cell_health_kpi_card_html("🔵", "New", "#3498db", "New Members", new_pct, new_count, wow_new),
+            _cell_health_mix_card_html("#3498db", "New Members", new_pct, new_count, wow_new),
             unsafe_allow_html=True,
         )
-        if st.button(
-            "Hide member names" if st.session_state.expand_new else "Show member names",
-            key="btn_new",
-            use_container_width=True,
-        ):
-            st.session_state.expand_new = not st.session_state.expand_new
         if st.session_state.expand_new:
             st.markdown(
                 "<p style='color: #3498db; font-weight: 600;'>New Members</p>",
@@ -536,18 +496,14 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
             _member_tiles(new_data, "#3498db")
 
     with col2:
+        if st.button("🟢 Regular", key="btn_regular", use_container_width=True):
+            st.session_state.expand_regular = not st.session_state.expand_regular
         st.markdown(
-            _cell_health_kpi_card_html(
-                "🟢", "Regular", "#2ecc71", "Regular Members", regular_pct, regular_count, wow_regular
+            _cell_health_mix_card_html(
+                "#2ecc71", "Regular Members", regular_pct, regular_count, wow_regular
             ),
             unsafe_allow_html=True,
         )
-        if st.button(
-            "Hide member names" if st.session_state.expand_regular else "Show member names",
-            key="btn_regular",
-            use_container_width=True,
-        ):
-            st.session_state.expand_regular = not st.session_state.expand_regular
         if st.session_state.expand_regular:
             st.markdown(
                 "<p style='color: #2ecc71; font-weight: 600;'>Regular Members (75% and above attendance)</p>",
@@ -560,10 +516,10 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
             _member_tiles(regular_data, "#2ecc71")
 
     with col3:
+        if st.button("🟠 Irregular", key="btn_irregular", use_container_width=True):
+            st.session_state.expand_irregular = not st.session_state.expand_irregular
         st.markdown(
-            _cell_health_kpi_card_html(
-                "🟠",
-                "Irregular",
+            _cell_health_mix_card_html(
                 "#e67e22",
                 "Irregular Members",
                 irregular_pct,
@@ -572,12 +528,6 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
             ),
             unsafe_allow_html=True,
         )
-        if st.button(
-            "Hide member names" if st.session_state.expand_irregular else "Show member names",
-            key="btn_irregular",
-            use_container_width=True,
-        ):
-            st.session_state.expand_irregular = not st.session_state.expand_irregular
         if st.session_state.expand_irregular:
             st.markdown(
                 "<p style='color: #e67e22; font-weight: 600;'>Irregular Members (Below 75% attendance)</p>",
@@ -595,18 +545,14 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     col1, col2 = st.columns(2)
 
     with col1:
+        if st.button("🟡 Follow Up", key="btn_follow_up", use_container_width=True):
+            st.session_state.expand_follow_up = not st.session_state.expand_follow_up
         st.markdown(
-            _cell_health_kpi_card_html(
-                "🟡", "Follow Up", "#f39c12", "Follow Up", follow_up_pct, follow_up_count, wow_follow_up
+            _cell_health_mix_card_html(
+                "#f39c12", "Follow Up", follow_up_pct, follow_up_count, wow_follow_up
             ),
             unsafe_allow_html=True,
         )
-        if st.button(
-            "Hide member names" if st.session_state.expand_follow_up else "Show member names",
-            key="btn_follow_up",
-            use_container_width=True,
-        ):
-            st.session_state.expand_follow_up = not st.session_state.expand_follow_up
         if st.session_state.expand_follow_up:
             st.markdown(
                 "<p style='color: #f39c12; font-weight: 600;'>Follow Up (0% attendance - past 2 months)</p>",
@@ -626,16 +572,12 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
             _member_tiles(follow_up_data, "#f39c12")
 
     with col2:
+        if st.button("🔴 Red", key="btn_red", use_container_width=True):
+            st.session_state.expand_red = not st.session_state.expand_red
         st.markdown(
-            _cell_health_kpi_card_html("🔴", "Red", "#e74c3c", "Red", red_pct, red_count, wow_red),
+            _cell_health_mix_card_html("#e74c3c", "Red", red_pct, red_count, wow_red),
             unsafe_allow_html=True,
         )
-        if st.button(
-            "Hide member names" if st.session_state.expand_red else "Show member names",
-            key="btn_red",
-            use_container_width=True,
-        ):
-            st.session_state.expand_red = not st.session_state.expand_red
         if st.session_state.expand_red:
             st.markdown(
                 "<p style='color: #e74c3c; font-weight: 600;'>Red (Won't come to church anymore)</p>",
@@ -660,18 +602,14 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     col1, col2 = st.columns(2)
 
     with col1:
+        if st.button("⭐ Graduated", key="btn_graduated", use_container_width=True):
+            st.session_state.expand_graduated = not st.session_state.expand_graduated
         st.markdown(
-            _cell_health_kpi_card_html(
-                "⭐", "Graduated", "#9b59b6", "Graduated", graduated_pct, graduated_count, wow_graduated
+            _cell_health_mix_card_html(
+                "#9b59b6", "Graduated", graduated_pct, graduated_count, wow_graduated
             ),
             unsafe_allow_html=True,
         )
-        if st.button(
-            "Hide member names" if st.session_state.expand_graduated else "Show member names",
-            key="btn_graduated",
-            use_container_width=True,
-        ):
-            st.session_state.expand_graduated = not st.session_state.expand_graduated
         if st.session_state.expand_graduated:
             st.markdown(
                 "<p style='color: #9b59b6; font-weight: 600;'>Graduated (Moved to leadership roles)</p>",
@@ -1116,17 +1054,19 @@ def _nwst_cell_health_wow_pill_html(bucket_key, curr_agg, prev_agg):
                 pill_cls = "ch-pill-bad"
             else:
                 pill_cls = "ch-pill-flat"
-        return (
+        inner = (
             f'<div class="ch-pill-wrap"><span class="ch-pill ch-pill--hero {pill_cls}">'
             f'<span class="ch-pill-arrow">{html.escape(arrow, quote=True)}</span>'
             f"<span>{bubble_txt}</span>"
             f"</span></div>"
         )
+        return f'<div class="ch-wow-banner">{inner}</div>'
 
-    return (
+    inner_na = (
         '<div class="ch-pill-wrap"><span class="ch-pill ch-pill--hero ch-pill-na">'
         "Need 2 log snapshots</span></div>"
     )
+    return f'<div class="ch-wow-banner">{inner_na}</div>'
 
 
 def _nwst_normalize_member_name(s):
