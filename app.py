@@ -1526,6 +1526,37 @@ def _nwst_weekly_contrasting_line_colors(primary_hex, n_series):
     return out
 
 
+def _nwst_ui_line_palette(primary_hex, n_series):
+    """Distinct lines in the same hue family as the app primary (matches Streamlit accent, not complement)."""
+    if n_series < 1:
+        n_series = 1
+    ph = str(primary_hex or "#888888").lstrip("#")
+    if len(ph) != 6 or not all(c in "0123456789abcdefABCDEF" for c in ph):
+        ph = "888888"
+    r = int(ph[0:2], 16) / 255.0
+    g = int(ph[2:4], 16) / 255.0
+    b = int(ph[4:6], 16) / 255.0
+    h, light, sat = colorsys.rgb_to_hls(r, g, b)
+    out = []
+    for i in range(n_series):
+        if n_series == 1:
+            li = min(0.82, max(0.42, light))
+            si = min(1.0, max(0.62, sat))
+        else:
+            t = i / max(1, n_series - 1)
+            li = 0.40 + t * 0.36
+            si = min(1.0, max(0.55, sat * (0.9 + 0.1 * (i % 3))))
+        r2, g2, b2 = colorsys.hls_to_rgb(h, li, si)
+        out.append(
+            "#{:02x}{:02x}{:02x}".format(
+                int(max(0, min(255, round(r2 * 255)))),
+                int(max(0, min(255, round(g2 * 255)))),
+                int(max(0, min(255, round(b2 * 255)))),
+            )
+        )
+    return out
+
+
 NWST_ATTENDED_CELL_MEMBERS_COL = "Attended cell members"
 # 0 = use every Saturday column from Attendance (widest time window on the chart).
 NWST_SERVICE_ATTENDANCE_CHART_MAX_WEEKS = 0
@@ -1547,14 +1578,14 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
         plot_df[NWST_ATTENDED_CELL_MEMBERS_COL] = 0
 
     n_lines = int(plot_df["Cell Group"].nunique())
-    line_colors = _nwst_weekly_contrasting_line_colors(
-        daily_colors["primary"], max(n_lines, 1)
-    )
+    line_colors = _nwst_ui_line_palette(daily_colors["primary"], max(n_lines, 1))
     cell_order = sorted(plot_df["Cell Group"].unique(), key=str.lower)
     cg_to_color = {cg: line_colors[i] for i, cg in enumerate(cell_order)}
 
     y_max = _nwst_count_y_axis_max(plot_df)
     fig = go.Figure()
+    plot_bg = colors["background"]
+    paper_bg = colors["card_bg"]
 
     for cg in cell_order:
         sub = plot_df[plot_df["Cell Group"] == cg]
@@ -1565,8 +1596,13 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
                 y=sub[NWST_ATTENDED_CELL_MEMBERS_COL],
                 name=str(cg),
                 legendgroup=str(cg),
-                mode="lines",
-                line=dict(width=2.75, color=c, shape="linear"),
+                mode="lines+markers",
+                line=dict(width=2.4, color=c, shape="linear"),
+                marker=dict(
+                    size=9,
+                    color=c,
+                    line=dict(width=2, color="#ffffff"),
+                ),
                 hovertemplate=(
                     "<b>%{fullData.name}</b><br>%{x}<br>"
                     "<b>%{y:.0f}</b> attended<extra></extra>"
@@ -1583,18 +1619,18 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
 
     line_muted = "rgba(255,255,255,0.22)"
     fig.update_layout(
-        height=500,
+        height=260,
         legend_title_text="",
-        plot_bgcolor="#000000",
-        paper_bgcolor="#000000",
-        font=dict(family="Inter, sans-serif", size=12, color=colors["text"]),
+        plot_bgcolor=plot_bg,
+        paper_bgcolor=paper_bg,
+        font=dict(family="Inter, sans-serif", size=11, color=colors["text"]),
         legend=dict(
             orientation="h",
             yanchor="top",
-            y=-0.16,
+            y=-0.22,
             xanchor="center",
             x=0.5,
-            font=dict(size=11, color=colors["text_muted"], family="Inter"),
+            font=dict(size=10, color=colors["text_muted"], family="Inter"),
             bgcolor="rgba(0,0,0,0)",
             borderwidth=0,
         ),
@@ -1603,15 +1639,15 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
         spikedistance=-1,
         hoverlabel=dict(
             bgcolor="#2a2a2a",
-            font=dict(size=13, color=colors["text"], family="Inter"),
+            font=dict(size=12, color=colors["text"], family="Inter"),
             bordercolor="rgba(255,255,255,0.2)",
             align="left",
         ),
-        margin=dict(l=48, r=16, t=12, b=72),
+        margin=dict(l=44, r=12, t=6, b=56),
     )
     fig.update_xaxes(
         title=dict(text=""),
-        tickfont=dict(color=colors["text_muted"], family="Inter", size=11),
+        tickfont=dict(color=colors["text_muted"], family="Inter", size=10),
         showgrid=False,
         zeroline=False,
         linecolor=line_muted,
@@ -1633,9 +1669,9 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
     fig.update_yaxes(
         title=dict(
             text="Attended cell members",
-            font=dict(size=11, color=colors["text_muted"]),
+            font=dict(size=10, color=colors["text_muted"]),
         ),
-        tickfont=dict(color=colors["text_muted"], family="Inter", size=11),
+        tickfont=dict(color=colors["text_muted"], family="Inter", size=10),
         showgrid=False,
         zeroline=False,
         linecolor=line_muted,
