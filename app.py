@@ -13,6 +13,8 @@ import json
 from collections import defaultdict
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.io as pio
+import streamlit.components.v1 as components
 from upstash_redis import Redis
 
 # Same spreadsheet as CG Combined / Attendance (NWST Health)
@@ -1596,19 +1598,31 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
                 y=sub[NWST_ATTENDED_CELL_MEMBERS_COL],
                 name=str(cg),
                 legendgroup=str(cg),
-                mode="lines+markers",
+                mode="lines",
                 line=dict(width=2.4, color=c, shape="linear"),
-                marker=dict(
-                    size=9,
-                    color=c,
-                    line=dict(width=2, color="#ffffff"),
-                ),
                 hovertemplate=(
                     "<b>%{fullData.name}</b><br>%{x}<br>"
                     "<b>%{y:.0f}</b> attended<extra></extra>"
                 ),
             )
         )
+
+    # Invisible hover-marker layer (position updated by JS in _nwst_attendance_chart_html).
+    fig.add_trace(
+        go.Scatter(
+            x=[],
+            y=[],
+            mode="markers",
+            name="",
+            showlegend=False,
+            hoverinfo="skip",
+            marker=dict(
+                size=9,
+                color=daily_colors["primary"],
+                line=dict(width=2, color="#ffffff"),
+            ),
+        )
+    )
 
     if len(date_cols) > 1:
         x_tickvals = [date_cols[0], date_cols[-1]]
@@ -1666,6 +1680,7 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
         spikethickness=1,
         spikedash="solid",
     )
+    y_tickvals = [0, y_max] if y_max > 0 else [0]
     fig.update_yaxes(
         title=dict(
             text="Attended cell members",
@@ -1677,9 +1692,71 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
         linecolor=line_muted,
         linewidth=1,
         range=[0, y_max],
-        nticks=5,
+        tickmode="array",
+        tickvals=y_tickvals,
+        ticktext=[str(int(v)) for v in y_tickvals],
     )
     return fig
+
+
+def _nwst_attendance_chart_html(fig: go.Figure, div_id: str) -> str:
+    """Embed Plotly figure with JS so one marker trace shows only while hovering (client-side)."""
+    safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in div_id)[:80]
+    marker_idx = len(fig.data) - 1
+    post_script = f"""
+<script>
+(function () {{
+  var markerIdx = {marker_idx};
+  var safeId = {json.dumps(safe_id)};
+  function lineColor(fd) {{
+    var c = fd && fd.line && fd.line.color;
+    if (!c) return '#ffffff';
+    return Array.isArray(c) ? c[0] : c;
+  }}
+  function bind() {{
+    var gd = document.getElementById(safeId);
+    if (!gd) return false;
+    gd.on('plotly_hover', function (ev) {{
+      if (!ev.points || !ev.points.length) return;
+      var pt = ev.points[0];
+      if (pt.curveNumber === markerIdx) return;
+      var fd = pt.fullData || pt.data || {{}};
+      var lc = lineColor(fd);
+      Plotly.restyle(
+        gd,
+        {{
+          x: [[pt.x]],
+          y: [[pt.y]],
+          'marker.color': [[lc]],
+          'marker.line.color': [['#ffffff']],
+        }},
+        [markerIdx]
+      );
+    }});
+    gd.on('plotly_unhover', function () {{
+      Plotly.restyle(gd, {{ x: [[]], y: [[]] }}, [markerIdx]);
+    }});
+    return true;
+  }}
+  var tries = 0;
+  function tryBind() {{
+    if (bind()) return;
+    if (++tries < 30) setTimeout(tryBind, 60);
+  }}
+  tryBind();
+}})();
+</script>
+"""
+    return pio.to_html(
+        fig,
+        full_html=True,
+        include_plotlyjs="cdn",
+        config={"displayModeBar": True, "responsive": True},
+        div_id=safe_id,
+        default_width="100%",
+        default_height="260px",
+        post_script=post_script,
+    )
 
 
 def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_each_cell_when_all=False):
@@ -1815,7 +1892,12 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
                     fig = _nwst_make_attendance_rate_fig(
                         plot_df_one, chart_date_cols, colors, daily_colors
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    components.html(
+                        _nwst_attendance_chart_html(fig, div_id=f"nwst-att-cg-{_i}"),
+                        width=2000,
+                        height=320,
+                        scrolling=False,
+                    )
             st.caption(
                 "Hover for counts — a vertical guide follows the pointer. "
                 "Switch tabs to compare cells; the latest Saturday is the right end of each line."
@@ -1823,7 +1905,7 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
             return
 
     zone_tab_names = sorted(zone_plots.keys(), key=str.lower)
-    for zone in zone_tab_names:
+    for zi, zone in enumerate(zone_tab_names):
         plot_df = zone_plots[zone]
         if len(zone_tab_names) > 1:
             st.markdown(
@@ -1832,7 +1914,12 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
                 unsafe_allow_html=True,
             )
         fig = _nwst_make_attendance_rate_fig(plot_df, chart_date_cols, colors, daily_colors)
-        st.plotly_chart(fig, use_container_width=True)
+        components.html(
+            _nwst_attendance_chart_html(fig, div_id=f"nwst-att-z-{zi}"),
+            width=2000,
+            height=320,
+            scrolling=False,
+        )
 
     st.caption(
         "Hover for counts — a vertical guide follows the pointer. "
