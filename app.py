@@ -34,6 +34,9 @@ NWST_ATTENDANCE_ANALYTICS_TAB = "Attendance Analytics"
 NWST_STATUS_HISTORICAL_TAB = "Status Historical"
 NWST_HISTORICAL_CELL_STATUS_TAB = "Historical Cell Status"
 
+# Individual Attendance monthly matrix: trailing window of month columns (most recent in data).
+MONTHLY_MEMBER_MATRIX_MAX_MONTHS = 4
+
 # Map CG Combined **Cell** dropdown value → short tab name (matches Apps Script `tabNameToDisplayCellForHistory_` inverse).
 _NWST_CELL_DISPLAY_TO_TAB = {
     "Anchor Street": "Anchor",
@@ -2184,6 +2187,8 @@ def build_monthly_member_status_table(display_df, att_df, cg_df, status_hist_df=
     If Status Historical is missing or has no month columns, months are derived from **Attendance**
     (75% rule on weekly 1/0 columns).
     Health always uses **Attendance** weekly marks aggregated over the same month keys shown.
+    Only the latest MONTHLY_MEMBER_MATRIX_MAX_MONTHS month keys (within data, not after current month)
+    are included so the table stays a fixed rolling window.
     Internal column _tile_status stores CG Combined status for Health cell coloring.
     Rows are sorted alphabetically by member name (case-insensitive), then by cell for stable ties.
     """
@@ -2223,6 +2228,9 @@ def build_monthly_member_status_table(display_df, att_df, cg_df, status_hist_df=
 
     if not month_keys:
         return pd.DataFrame()
+
+    if len(month_keys) > MONTHLY_MEMBER_MATRIX_MAX_MONTHS:
+        month_keys = month_keys[-MONTHLY_MEMBER_MATRIX_MAX_MONTHS:]
 
     month_labels = [datetime(y, m, 1).strftime("%b %y") for y, m in month_keys]
 
