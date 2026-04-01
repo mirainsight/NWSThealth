@@ -321,6 +321,34 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     letter-spacing: 0.16em;
     margin: 0 0 0.5rem 0;
   }}
+  .ch-kpi-wow-row {{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.85rem;
+    margin: 0.35rem 0 0.2rem 0;
+  }}
+  .ch-kpi-wow-row .kpi-number {{
+    margin: 0 !important;
+    line-height: 1;
+    flex: 0 1 auto;
+  }}
+  .ch-kpi-wow-row .ch-pill-wrap {{
+    margin-top: 0;
+    flex: 0 1 auto;
+    min-width: 0;
+    align-self: center;
+  }}
+  .ch-pill.ch-pill--hero {{
+    font-size: clamp(0.65rem, 1.15vw, 0.8rem);
+    padding: 0.2rem 0.55rem 0.22rem;
+    gap: 0.28rem;
+  }}
+  .ch-pill--hero .ch-pill-arrow {{
+    font-size: 0.88em;
+  }}
   .ch-pill-wrap {{ margin-top: 0.35rem; line-height: 1; max-width: 100%; }}
   .ch-pill {{
     display: inline-flex;
@@ -423,9 +451,11 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
             f"""
             <div class="kpi-card" style="cursor: pointer;">
                 <div class="kpi-label">New Members</div>
-                <div class="kpi-number" style="color: #3498db;">{new_pct:.0f}%</div>
+                <div class="ch-kpi-wow-row">
+                    <div class="kpi-number" style="color: #3498db;">{new_pct:.0f}%</div>
+                    {wow_new}
+                </div>
                 <div class="kpi-subtitle">{new_count} members</div>
-                {wow_new}
             </div>
             """,
             unsafe_allow_html=True,
@@ -448,9 +478,11 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
             f"""
             <div class="kpi-card" style="cursor: pointer;">
                 <div class="kpi-label">Regular Members</div>
-                <div class="kpi-number" style="color: #2ecc71;">{regular_pct:.0f}%</div>
+                <div class="ch-kpi-wow-row">
+                    <div class="kpi-number" style="color: #2ecc71;">{regular_pct:.0f}%</div>
+                    {wow_regular}
+                </div>
                 <div class="kpi-subtitle">{regular_count} members</div>
-                {wow_regular}
             </div>
             """,
             unsafe_allow_html=True,
@@ -473,9 +505,11 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
             f"""
             <div class="kpi-card" style="cursor: pointer;">
                 <div class="kpi-label">Irregular Members</div>
-                <div class="kpi-number" style="color: #e67e22;">{irregular_pct:.0f}%</div>
+                <div class="ch-kpi-wow-row">
+                    <div class="kpi-number" style="color: #e67e22;">{irregular_pct:.0f}%</div>
+                    {wow_irregular}
+                </div>
                 <div class="kpi-subtitle">{irregular_count} members</div>
-                {wow_irregular}
             </div>
             """,
             unsafe_allow_html=True,
@@ -503,9 +537,11 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
             f"""
             <div class="kpi-card" style="cursor: pointer;">
                 <div class="kpi-label">Follow Up</div>
-                <div class="kpi-number" style="color: #f39c12;">{follow_up_pct:.0f}%</div>
+                <div class="ch-kpi-wow-row">
+                    <div class="kpi-number" style="color: #f39c12;">{follow_up_pct:.0f}%</div>
+                    {wow_follow_up}
+                </div>
                 <div class="kpi-subtitle">{follow_up_count} members</div>
-                {wow_follow_up}
             </div>
             """,
             unsafe_allow_html=True,
@@ -535,9 +571,11 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
             f"""
             <div class="kpi-card" style="cursor: pointer;">
                 <div class="kpi-label">Red</div>
-                <div class="kpi-number" style="color: #e74c3c;">{red_pct:.0f}%</div>
+                <div class="ch-kpi-wow-row">
+                    <div class="kpi-number" style="color: #e74c3c;">{red_pct:.0f}%</div>
+                    {wow_red}
+                </div>
                 <div class="kpi-subtitle">{red_count} members</div>
-                {wow_red}
             </div>
             """,
             unsafe_allow_html=True,
@@ -572,9 +610,11 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
             f"""
             <div class="kpi-card" style="cursor: pointer;">
                 <div class="kpi-label">Graduated</div>
-                <div class="kpi-number" style="color: #9b59b6;">{graduated_pct:.0f}%</div>
+                <div class="ch-kpi-wow-row">
+                    <div class="kpi-number" style="color: #9b59b6;">{graduated_pct:.0f}%</div>
+                    {wow_graduated}
+                </div>
                 <div class="kpi-subtitle">{graduated_count} members</div>
-                {wow_graduated}
             </div>
             """,
             unsafe_allow_html=True,
@@ -1024,13 +1064,16 @@ def _nwst_cell_health_wow_pill_html(bucket_key, curr_agg, prev_agg):
             else:
                 pill_cls = "ch-pill-flat"
         return (
-            f'<div class="ch-pill-wrap"><span class="ch-pill {pill_cls}">'
+            f'<div class="ch-pill-wrap"><span class="ch-pill ch-pill--hero {pill_cls}">'
             f'<span class="ch-pill-arrow">{html.escape(arrow, quote=True)}</span>'
             f"<span>{bubble_txt}</span>"
             f"</span></div>"
         )
 
-    return '<div class="ch-pill-wrap"><span class="ch-pill ch-pill-na">Need 2 log snapshots</span></div>'
+    return (
+        '<div class="ch-pill-wrap"><span class="ch-pill ch-pill--hero ch-pill-na">'
+        "Need 2 log snapshots</span></div>"
+    )
 
 
 def _nwst_normalize_member_name(s):
