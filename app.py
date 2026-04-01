@@ -1060,12 +1060,12 @@ def _nwst_hist_cell_wow_for_scope(hist_df, cell_filter):
 
 
 def _nwst_cell_health_wow_color_for_delta(bucket_key, delta_n):
-    """Regular, graduated: more members = good (green). New: any non‑zero change = good (green); 0 = red.
+    """Regular, graduated: more members = good (green). New: any non‑zero change = good (green); 0 = grey.
     Risk-style buckets: fewer = good (green)."""
     if delta_n is None or (isinstance(delta_n, float) and pd.isna(delta_n)):
         return "#aaaaaa"
     if bucket_key == "new":
-        return "#2ecc71" if delta_n != 0 else "#e74c3c"
+        return "#2ecc71" if delta_n != 0 else "#aaaaaa"
     if delta_n == 0:
         return "#aaaaaa"
     if bucket_key in ("regular", "graduated"):
@@ -1103,7 +1103,7 @@ def _nwst_cell_health_wow_pill_html(bucket_key, curr_agg, prev_agg):
         if bucket_key == "new":
             if d_mem == 0:
                 arrow = "·"
-                pill_cls = "ch-pill-bad"
+                pill_cls = "ch-pill-flat"
             else:
                 arrow = "↑" if d_mem > 0 else "↓"
                 pill_cls = "ch-pill-good"
