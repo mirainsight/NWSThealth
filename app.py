@@ -321,23 +321,6 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     letter-spacing: 0.16em;
     margin: 0 0 0.5rem 0;
   }}
-  .ch-wow-banner {{
-    display: inline-flex;
-    align-items: center;
-    justify-content: flex-start;
-    padding: 0.4rem 0.65rem 0.42rem 0.75rem;
-    border-radius: 10px;
-    background: linear-gradient(105deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.02) 100%);
-    border: 1px solid rgba(255,255,255,0.14);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 4px 14px rgba(0,0,0,0.2);
-    box-sizing: border-box;
-    flex: 0 1 auto;
-    min-width: 0;
-    max-width: 100%;
-  }}
-  .ch-wow-banner .ch-pill-wrap {{
-    margin: 0;
-  }}
   .ch-kpi-wow-row {{
     display: flex;
     flex-direction: row;
@@ -360,10 +343,29 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
   }}
   .ch-pill.ch-pill--hero {{
     font-size: clamp(0.88rem, 1.55vw, 1.12rem);
-    padding: 0.28rem 0.72rem 0.3rem;
+    padding: 0.3rem 0.78rem 0.32rem;
     gap: 0.34rem;
     font-weight: 700;
     letter-spacing: 0.03em;
+    border: none;
+    outline: none;
+  }}
+  /* Single pill only — soft glow ring, no outer grey box */
+  .ch-pill.ch-pill--hero.ch-pill-good {{
+    box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.35), 0 0 32px rgba(94, 234, 212, 0.28);
+    text-shadow: 0 0 12px rgba(94, 234, 212, 0.45);
+  }}
+  .ch-pill.ch-pill--hero.ch-pill-bad {{
+    box-shadow: 0 0 0 1px rgba(253, 164, 175, 0.35), 0 0 26px rgba(253, 164, 175, 0.22);
+    text-shadow: 0 0 10px rgba(253, 164, 175, 0.35);
+  }}
+  .ch-pill.ch-pill--hero.ch-pill-flat {{
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+    background: rgba(42, 42, 42, 0.95);
+  }}
+  .ch-pill.ch-pill--hero.ch-pill-na {{
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+    background: #2a2a2a;
   }}
   .ch-pill--hero .ch-pill-arrow {{
     font-size: 0.95em;
@@ -1054,19 +1056,17 @@ def _nwst_cell_health_wow_pill_html(bucket_key, curr_agg, prev_agg):
                 pill_cls = "ch-pill-bad"
             else:
                 pill_cls = "ch-pill-flat"
-        inner = (
+        return (
             f'<div class="ch-pill-wrap"><span class="ch-pill ch-pill--hero {pill_cls}">'
             f'<span class="ch-pill-arrow">{html.escape(arrow, quote=True)}</span>'
             f"<span>{bubble_txt}</span>"
             f"</span></div>"
         )
-        return f'<div class="ch-wow-banner">{inner}</div>'
 
-    inner_na = (
+    return (
         '<div class="ch-pill-wrap"><span class="ch-pill ch-pill--hero ch-pill-na">'
         "Need 2 log snapshots</span></div>"
     )
-    return f'<div class="ch-wow-banner">{inner_na}</div>'
 
 
 def _nwst_normalize_member_name(s):
