@@ -10,6 +10,7 @@ from gspread.exceptions import WorksheetNotFound
 from google.oauth2.service_account import Credentials
 import pandas as pd
 import json
+import math
 from collections import defaultdict
 import plotly.express as px
 import plotly.graph_objects as go
@@ -1643,10 +1644,19 @@ def _nwst_count_y_axis_range(plot_df):
     return y_lo, y_hi
 
 
-def _nwst_format_attendance_tick(v):
-    if abs(v - round(v)) < 1e-6:
-        return str(int(round(v)))
-    return f"{v:.1f}".rstrip("0").rstrip(".")
+def _nwst_attendance_y_ticks(y_lo, y_mean, y_hi):
+    """Integer y-axis ticks (low / mean / high); ensures ≥2 distinct values for Plotly."""
+    cands = [int(round(y_lo)), int(round(y_mean)), int(round(y_hi))]
+    tickvals = []
+    for c in cands:
+        c = max(0, c)
+        if not tickvals or c != tickvals[-1]:
+            tickvals.append(c)
+    if len(tickvals) >= 2:
+        return tickvals
+    lo = max(0, math.floor(y_lo))
+    hi = max(lo + 1, math.ceil(y_hi))
+    return [lo, hi] if lo != hi else [max(0, lo - 1), hi + 1]
 
 
 def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
@@ -1749,12 +1759,7 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
         spikethickness=1,
         spikedash="solid",
     )
-    y_tickvals = []
-    for v in (y_lo, y_mean, y_hi):
-        if not y_tickvals or abs(v - y_tickvals[-1]) > 1e-6:
-            y_tickvals.append(v)
-    if len(y_tickvals) < 2:
-        y_tickvals = [y_lo, y_hi]
+    y_tickvals = _nwst_attendance_y_ticks(y_lo, y_mean, y_hi)
     fig.update_yaxes(
         title=dict(
             text="Attended cell members",
@@ -1768,7 +1773,7 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
         range=[y_lo, y_hi],
         tickmode="array",
         tickvals=y_tickvals,
-        ticktext=[_nwst_format_attendance_tick(v) for v in y_tickvals],
+        ticktext=[str(int(v)) for v in y_tickvals],
     )
     return fig
 
@@ -1907,10 +1912,6 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
                         plot_df_one, chart_date_cols, colors, daily_colors
                     )
                     st.plotly_chart(fig, use_container_width=True)
-            st.caption(
-                "Hover for counts — a vertical guide follows the pointer. "
-                "Switch tabs to compare cells; the latest Saturday is the right end of each line."
-            )
             return
 
     zone_tab_names = sorted(zone_plots.keys(), key=str.lower)
@@ -1924,11 +1925,6 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
             )
         fig = _nwst_make_attendance_rate_fig(plot_df, chart_date_cols, colors, daily_colors)
         st.plotly_chart(fig, use_container_width=True)
-
-    st.caption(
-        "Hover for counts — a vertical guide follows the pointer. "
-        "Each line is one cell; the latest Saturday is the right end of the series."
-    )
 
 
 def _resolve_cg_name_cell_columns(cg_df):
