@@ -11,7 +11,6 @@ from gspread.exceptions import APIError, WorksheetNotFound
 from google.oauth2.service_account import Credentials
 import pandas as pd
 import json
-import math
 from collections import defaultdict
 import plotly.express as px
 import plotly.graph_objects as go
@@ -1697,21 +1696,6 @@ def _nwst_count_y_axis_range(plot_df):
     return y_lo, y_hi
 
 
-def _nwst_attendance_y_ticks(y_lo, y_mean, y_hi):
-    """Integer y-axis ticks (low / mean / high); ensures ≥2 distinct values for Plotly."""
-    cands = [int(round(y_lo)), int(round(y_mean)), int(round(y_hi))]
-    tickvals = []
-    for c in cands:
-        c = max(0, c)
-        if not tickvals or c != tickvals[-1]:
-            tickvals.append(c)
-    if len(tickvals) >= 2:
-        return tickvals
-    lo = max(0, math.floor(y_lo))
-    hi = max(lo + 1, math.ceil(y_hi))
-    return [lo, hi] if lo != hi else [max(0, lo - 1), hi + 1]
-
-
 def _nwst_attendance_data_min_max_int(plot_df):
     col = NWST_ATTENDED_CELL_MEMBERS_COL
     if plot_df.empty or col not in plot_df.columns:
@@ -1720,22 +1704,9 @@ def _nwst_attendance_data_min_max_int(plot_df):
     return int(s.min()), int(s.max())
 
 
-def _nwst_attendance_y_tick_labels(tickvals, data_min_i, data_max_i):
-    """Whole-number ticks; label series min/max where they match a tick."""
-    out = []
-    for v in tickvals:
-        vi = int(v)
-        is_min = vi == data_min_i
-        is_max = vi == data_max_i
-        if is_min and is_max:
-            out.append(f"{vi} (min, max)")
-        elif is_min:
-            out.append(f"{vi} (min)")
-        elif is_max:
-            out.append(f"{vi} (max)")
-        else:
-            out.append(str(vi))
-    return out
+def _nwst_attendance_y_tick_labels(tickvals):
+    """Whole-number y-axis tick text (no min/max annotations)."""
+    return [str(int(v)) for v in tickvals]
 
 
 def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
@@ -1815,7 +1786,7 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
             bordercolor="rgba(255,255,255,0.2)",
             align="left",
         ),
-        margin=dict(l=58, r=12, t=6, b=56),
+        margin=dict(l=48, r=12, t=6, b=56),
     )
     fig.update_xaxes(
         title=dict(text=""),
@@ -1839,10 +1810,9 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
         spikedash="solid",
     )
     data_min_i, data_max_i = _nwst_attendance_data_min_max_int(plot_df)
-    y_tickvals = sorted(
-        set(_nwst_attendance_y_ticks(y_lo, y_mean, y_hi))
-        | {max(0, data_min_i), max(0, data_max_i)}
-    )
+    lo_i, hi_i = max(0, data_min_i), max(0, data_max_i)
+    mean_i = max(0, int(round(y_mean)))
+    y_tickvals = sorted({lo_i, hi_i, mean_i})
     fig.update_yaxes(
         title=dict(
             text="Attended cell members",
@@ -1856,7 +1826,7 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
         range=[y_lo, y_hi],
         tickmode="array",
         tickvals=y_tickvals,
-        ticktext=_nwst_attendance_y_tick_labels(y_tickvals, data_min_i, data_max_i),
+        ticktext=_nwst_attendance_y_tick_labels(y_tickvals),
     )
     return fig
 
