@@ -1623,13 +1623,30 @@ NWST_ATTENDED_CELL_MEMBERS_COL = "Attended cell members"
 NWST_SERVICE_ATTENDANCE_CHART_MAX_WEEKS = 0
 
 
-def _nwst_count_y_axis_max(plot_df):
+def _nwst_count_y_axis_range(plot_df):
+    """Vertical span from padded data min/max so counts use most of the chart (less empty space below)."""
     col = NWST_ATTENDED_CELL_MEMBERS_COL
-    max_att = float(plot_df[col].max()) if not plot_df.empty else 0.0
-    if max_att <= 0:
-        return 5
-    headroom = max(2.0, round(max_att * 0.16, 1))
-    return int(max_att + headroom)
+    if plot_df.empty or col not in plot_df.columns:
+        return 0.0, 5.0
+    s = plot_df[col].astype(float)
+    data_min = float(s.min())
+    data_max = float(s.max())
+    if data_max <= 0:
+        return 0.0, 5.0
+    span = data_max - data_min
+    if span <= 1e-9:
+        span = max(2.0, max(1.0, data_max) * 0.25)
+    pad_below = max(0.5, span * 0.1)
+    pad_above = max(0.75, span * 0.12)
+    y_lo = max(0.0, data_min - pad_below)
+    y_hi = data_max + pad_above
+    return y_lo, y_hi
+
+
+def _nwst_format_attendance_tick(v):
+    if abs(v - round(v)) < 1e-6:
+        return str(int(round(v)))
+    return f"{v:.1f}".rstrip("0").rstrip(".")
 
 
 def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
@@ -1643,7 +1660,8 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
     cell_order = sorted(plot_df["Cell Group"].unique(), key=str.lower)
     cg_to_color = {cg: line_colors[i] for i, cg in enumerate(cell_order)}
 
-    y_max = _nwst_count_y_axis_max(plot_df)
+    y_lo, y_hi = _nwst_count_y_axis_range(plot_df)
+    y_mean = float(plot_df[NWST_ATTENDED_CELL_MEMBERS_COL].mean())
     fig = go.Figure()
     plot_bg = colors["background"]
     paper_bg = colors["card_bg"]
@@ -1658,13 +1676,22 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
                 name=str(cg),
                 legendgroup=str(cg),
                 mode="lines",
-                line=dict(width=2, color=c, shape="linear"),
+                line=dict(width=2, color=c, shape="spline", smoothing=1.2),
                 hovertemplate=(
                     "<b>%{fullData.name}</b><br>%{x}<br>"
                     "<b>%{y:.0f}</b> attended<extra></extra>"
                 ),
             )
         )
+
+    fig.add_hline(
+        y=y_mean,
+        line_width=1,
+        line_dash="dash",
+        line_color=colors["text_muted"],
+        opacity=0.85,
+        layer="below",
+    )
 
     if len(date_cols) > 1:
         x_tickvals = [date_cols[0], date_cols[-1]]
@@ -1722,7 +1749,12 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
         spikethickness=1,
         spikedash="solid",
     )
-    y_tickvals = [0, y_max] if y_max > 0 else [0]
+    y_tickvals = []
+    for v in (y_lo, y_mean, y_hi):
+        if not y_tickvals or abs(v - y_tickvals[-1]) > 1e-6:
+            y_tickvals.append(v)
+    if len(y_tickvals) < 2:
+        y_tickvals = [y_lo, y_hi]
     fig.update_yaxes(
         title=dict(
             text="Attended cell members",
@@ -1733,10 +1765,10 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
         zeroline=False,
         linecolor=line_muted,
         linewidth=1,
-        range=[0, y_max],
+        range=[y_lo, y_hi],
         tickmode="array",
         tickvals=y_tickvals,
-        ticktext=[str(int(v)) for v in y_tickvals],
+        ticktext=[_nwst_format_attendance_tick(v) for v in y_tickvals],
     )
     return fig
 
