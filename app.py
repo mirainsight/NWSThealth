@@ -1659,6 +1659,32 @@ def _nwst_attendance_y_ticks(y_lo, y_mean, y_hi):
     return [lo, hi] if lo != hi else [max(0, lo - 1), hi + 1]
 
 
+def _nwst_attendance_data_min_max_int(plot_df):
+    col = NWST_ATTENDED_CELL_MEMBERS_COL
+    if plot_df.empty or col not in plot_df.columns:
+        return 0, 0
+    s = plot_df[col].astype(float)
+    return int(s.min()), int(s.max())
+
+
+def _nwst_attendance_y_tick_labels(tickvals, data_min_i, data_max_i):
+    """Whole-number ticks; label series min/max where they match a tick."""
+    out = []
+    for v in tickvals:
+        vi = int(v)
+        is_min = vi == data_min_i
+        is_max = vi == data_max_i
+        if is_min and is_max:
+            out.append(f"{vi} (min, max)")
+        elif is_min:
+            out.append(f"{vi} (min)")
+        elif is_max:
+            out.append(f"{vi} (max)")
+        else:
+            out.append(str(vi))
+    return out
+
+
 def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
     """Minimal line chart: attended cell members per Saturday (one line per cell group)."""
     plot_df = plot_df.copy()
@@ -1736,7 +1762,7 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
             bordercolor="rgba(255,255,255,0.2)",
             align="left",
         ),
-        margin=dict(l=44, r=12, t=6, b=56),
+        margin=dict(l=58, r=12, t=6, b=56),
     )
     fig.update_xaxes(
         title=dict(text=""),
@@ -1759,7 +1785,11 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
         spikethickness=1,
         spikedash="solid",
     )
-    y_tickvals = _nwst_attendance_y_ticks(y_lo, y_mean, y_hi)
+    data_min_i, data_max_i = _nwst_attendance_data_min_max_int(plot_df)
+    y_tickvals = sorted(
+        set(_nwst_attendance_y_ticks(y_lo, y_mean, y_hi))
+        | {max(0, data_min_i), max(0, data_max_i)}
+    )
     fig.update_yaxes(
         title=dict(
             text="Attended cell members",
@@ -1773,7 +1803,7 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
         range=[y_lo, y_hi],
         tickmode="array",
         tickvals=y_tickvals,
-        ticktext=[str(int(v)) for v in y_tickvals],
+        ticktext=_nwst_attendance_y_tick_labels(y_tickvals, data_min_i, data_max_i),
     )
     return fig
 
