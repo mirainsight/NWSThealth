@@ -4040,22 +4040,11 @@ if current_page == "cg":
                 cell_options.extend(unique_cells)
 
             # Filter section with dynamic options
-            st.markdown("#### Global Filters")
-            filter_col1, filter_col2 = st.columns(2)
-
-            with filter_col1:
-                cell_filter = st.selectbox(
-                    "Cell",
-                    options=cell_options,
-                    key="global_cell_filter"
-                )
-
-            with filter_col2:
-                status_filter = st.selectbox(
-                    "Status",
-                    options=["All", "Active", "Inactive"],
-                    key="status_filter"
-                )
+            cell_filter = st.selectbox(
+                "Cell",
+                options=cell_options,
+                key="global_cell_filter",
+            )
 
             st.markdown("---")
 
@@ -4065,13 +4054,6 @@ if current_page == "cg":
             # Apply cell filter
             if cell_filter != "All" and cell_columns:
                 display_df = display_df[display_df[cell_columns[0]] == cell_filter]
-
-            # Apply status filter if available
-            if status_filter != "All":
-                # Filter by status if there's a status column
-                status_columns = [col for col in display_df.columns if 'status' in col.lower()]
-                if status_columns:
-                    display_df = display_df[display_df[status_columns[0]] == status_filter]
 
             # CELL HEALTH — quick view (Historical Cell Status WoW + live CG Combined mix)
             _render_cg_cell_health_section(display_df, daily_colors, cell_filter, attendance_stats)
@@ -4276,8 +4258,7 @@ elif current_page == "ministry":
             ministry_options = ["All"] + sorted(list(base_ministries))
 
             # Filter section with dynamic options
-            st.markdown("#### Global Filters")
-            filter_col1, filter_col2, filter_col3 = st.columns(3)
+            filter_col1, filter_col2 = st.columns(2)
 
             with filter_col1:
                 ministry_filter = st.selectbox(
@@ -4307,13 +4288,6 @@ elif current_page == "ministry":
             else:
                 filter_col2.write("")
 
-            with filter_col3:
-                status_filter_m = st.selectbox(
-                    "Status",
-                    options=["All", "Active", "Inactive"],
-                    key="status_filter_m"
-                )
-
             st.markdown("---")
 
             # Apply filters
@@ -4330,12 +4304,6 @@ elif current_page == "ministry":
                 else:
                     # For other ministries, match entries that start with the ministry name but have no department
                     display_ministry_df = display_ministry_df[display_ministry_df[ministry_columns[0]].str.match(f"^{ministry_filter}$", na=False, case=False)]
-
-            # Apply status filter if available
-            if status_filter_m != "All":
-                status_columns_m = [col for col in display_ministry_df.columns if 'status' in col.lower()]
-                if status_columns_m:
-                    display_ministry_df = display_ministry_df[display_ministry_df[status_columns_m[0]] == status_filter_m]
 
             # LEADERSHIP SECTION
             st.markdown("")
