@@ -1,12 +1,13 @@
 import html
 import os
+import time
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 import colorsys
 import hashlib
 import random
 import gspread
-from gspread.exceptions import WorksheetNotFound
+from gspread.exceptions import APIError, WorksheetNotFound
 from google.oauth2.service_account import Credentials
 import pandas as pd
 import json
@@ -18,6 +19,8 @@ from upstash_redis import Redis
 
 # Same spreadsheet as CG Combined / Attendance (NWST Health)
 NWST_HEALTH_SHEET_ID = "1uexbQinWl1r6NgmSrmOXPtWs-q4OJV3o1OwLywMWzzY"
+# Processed Attendance grid for Cell Attendance charts (shared across instances via Upstash)
+NWST_REDIS_ATTENDANCE_CHART_GRID_KEY = "nwst_attendance_chart_grid"
 
 # CHECK IN attendance spreadsheet — used only for the Analytics tab (Attendance Analytics, Options, Key Values)
 CHECKIN_ATTENDANCE_SHEET_ID = os.getenv("ATTENDANCE_SHEET_ID", "").strip()
@@ -1232,150 +1235,200 @@ def _nwst_detect_name_cell_columns_for_grid(header_row, sample_row):
     return 0, None
 
 
+def _nwst_sheet_api_transient(api_err):
+    """True when retrying the same read may succeed (rate limit / Google blips)."""
+    code = getattr(api_err.response, "status_code", None) or getattr(api_err, "code", None)
+    return code in {429, 500, 502, 503, 504}
+
+
 @st.cache_data(ttl=300)
 def nwst_get_attendance_grid_for_charts(sheet_id):
     """Load **Attendance** tab — Saturday columns only; cell from sheet or **CG Combined** name lookup."""
+    redis = get_redis_client()
+    if redis:
+        try:
+            cached_raw = redis.get(NWST_REDIS_ATTENDANCE_CHART_GRID_KEY)
+            if cached_raw:
+                payload = json.loads(cached_raw)
+                df = pd.DataFrame(payload["rows"], columns=payload["columns"])
+                dates = payload.get("saturday_dates_short") or []
+                return df, dates, None
+        except Exception:
+            pass
+
     client = get_google_sheet_client()
     if not client:
         return None, [], "Could not connect to Google Sheets."
 
-    try:
-        spreadsheet = client.open_by_key(sheet_id)
+    transient_attempts = 3
+    for attempt in range(transient_attempts):
         try:
-            att_sheet = spreadsheet.worksheet(NWST_ATTENDANCE_TAB)
-        except WorksheetNotFound:
-            return None, [], f"Tab '{NWST_ATTENDANCE_TAB}' not found."
-
-        try:
-            cg_sheet = spreadsheet.worksheet("CG Combined")
-        except WorksheetNotFound:
-            return None, [], "Tab 'CG Combined' not found."
-
-        all_values = att_sheet.get_all_values()
-        cg_vals = cg_sheet.get_all_values()
-        if len(all_values) < 2:
-            return None, [], "No data in Attendance."
-        if len(cg_vals) < 2:
-            return None, [], "No data in CG Combined."
-
-        cg_df = pd.DataFrame(cg_vals[1:], columns=cg_vals[0])
-        cg_name_col, cg_cell_col = _resolve_cg_name_cell_columns(cg_df)
-        if cg_cell_col is None:
-            for col in cg_df.columns:
-                cl = str(col).lower().strip()
-                if ("cell" in cl or "group" in cl) and "leader" not in cl:
-                    cg_cell_col = col
-                    break
-
-        header_row = all_values[0]
-        sample_row = all_values[1] if len(all_values) > 1 else []
-        name_col_idx, sheet_cell_col_idx = _nwst_detect_name_cell_columns_for_grid(
-            header_row, sample_row
-        )
-
-        saturday_entries = []
-        for col_idx in range(len(header_row)):
-            if col_idx in (name_col_idx, sheet_cell_col_idx):
-                continue
-            h = header_row[col_idx]
-            d = parse_attendance_column_date(h)
-            if d is None or d.weekday() != 5:
-                continue
-            saturday_entries.append((d, col_idx))
-
-        if not saturday_entries:
-            return None, [], (
-                "No Saturday columns found in **Attendance** row 1. "
-                "Headers must be parseable dates (same as Monthly Health)."
-            )
-
-        saturday_entries.sort(key=lambda x: x[0])
-        saturday_dates_short = [d.strftime("%d %b %Y") for d, _ in saturday_entries]
-        col_indices = [idx for _, idx in saturday_entries]
-
-        def _nwst_attendance_present(cell_val):
-            if cell_val is None or (isinstance(cell_val, float) and pd.isna(cell_val)):
-                return False
-            s = str(cell_val).strip().lower()
-            if s in ("1", "yes", "y", "true", "x"):
-                return True
+            spreadsheet = client.open_by_key(sheet_id)
             try:
-                return int(float(str(cell_val).strip())) == 1
-            except (TypeError, ValueError):
-                return False
+                att_sheet = spreadsheet.worksheet(NWST_ATTENDANCE_TAB)
+            except WorksheetNotFound:
+                return None, [], f"Tab '{NWST_ATTENDANCE_TAB}' not found."
 
-        def _cell_from_cg(person_name):
-            k = _nwst_normalize_member_name(person_name)
-            if not k or not cg_name_col or not cg_cell_col:
-                return ""
-            cg_match = cg_df[
-                cg_df[cg_name_col]
-                .astype(str)
-                .map(_nwst_normalize_member_name)
-                == k
-            ]
-            if cg_match.empty:
-                return ""
-            return str(cg_match.iloc[0][cg_cell_col]).strip()
+            try:
+                cg_sheet = spreadsheet.worksheet("CG Combined")
+            except WorksheetNotFound:
+                return None, [], "Tab 'CG Combined' not found."
 
-        data_rows = []
+            all_values = att_sheet.get_all_values()
+            cg_vals = cg_sheet.get_all_values()
+            if len(all_values) < 2:
+                return None, [], "No data in Attendance."
+            if len(cg_vals) < 2:
+                return None, [], "No data in CG Combined."
 
-        for row in all_values[1:]:
-            if not row:
-                continue
-            if name_col_idx >= len(row):
-                continue
-            name = str(row[name_col_idx]).strip() if row[name_col_idx] else ""
-            if name.lower() == "name":
-                continue
+            cg_df = pd.DataFrame(cg_vals[1:], columns=cg_vals[0])
+            cg_name_col, cg_cell_col = _resolve_cg_name_cell_columns(cg_df)
+            if cg_cell_col is None:
+                for col in cg_df.columns:
+                    cl = str(col).lower().strip()
+                    if ("cell" in cl or "group" in cl) and "leader" not in cl:
+                        cg_cell_col = col
+                        break
 
-            cell_group = ""
-            if sheet_cell_col_idx is not None and sheet_cell_col_idx < len(row):
-                cell_group = str(row[sheet_cell_col_idx]).strip()
+            header_row = all_values[0]
+            sample_row = all_values[1] if len(all_values) > 1 else []
+            name_col_idx, sheet_cell_col_idx = _nwst_detect_name_cell_columns_for_grid(
+                header_row, sample_row
+            )
 
-            # Column A "Date" often holds "Full Name - Cell"; use if name/cell missing
-            combined_a = str(row[0]).strip() if row and len(row) > 0 and row[0] else ""
-            if (" - " in combined_a) and (not name or not cell_group):
-                left, right = combined_a.split(" - ", 1)
-                if not name:
-                    name = left.strip()
-                if not cell_group:
-                    cell_group = right.strip()
+            saturday_entries = []
+            for col_idx in range(len(header_row)):
+                if col_idx in (name_col_idx, sheet_cell_col_idx):
+                    continue
+                h = header_row[col_idx]
+                d = parse_attendance_column_date(h)
+                if d is None or d.weekday() != 5:
+                    continue
+                saturday_entries.append((d, col_idx))
 
-            if not name:
-                continue
-
-            if not cell_group:
-                cell_group = _cell_from_cg(name)
-            if not cell_group:
-                continue
-
-            attendance = {
-                saturday_dates_short[j]: (
-                    1 if (col_indices[j] < len(row) and _nwst_attendance_present(row[col_indices[j]])) else 0
+            if not saturday_entries:
+                return None, [], (
+                    "No Saturday columns found in **Attendance** row 1. "
+                    "Headers must be parseable dates (same as Monthly Health)."
                 )
-                for j in range(len(col_indices))
-            }
-            data_rows.append(
-                {
-                    "Name": name,
-                    "Cell Group": cell_group,
-                    "Name - Cell Group": f"{name} - {cell_group}",
-                    **attendance,
+
+            saturday_entries.sort(key=lambda x: x[0])
+            saturday_dates_short = [d.strftime("%d %b %Y") for d, _ in saturday_entries]
+            col_indices = [idx for _, idx in saturday_entries]
+
+            def _nwst_attendance_present(cell_val):
+                if cell_val is None or (isinstance(cell_val, float) and pd.isna(cell_val)):
+                    return False
+                s = str(cell_val).strip().lower()
+                if s in ("1", "yes", "y", "true", "x"):
+                    return True
+                try:
+                    return int(float(str(cell_val).strip())) == 1
+                except (TypeError, ValueError):
+                    return False
+
+            def _cell_from_cg(person_name):
+                k = _nwst_normalize_member_name(person_name)
+                if not k or not cg_name_col or not cg_cell_col:
+                    return ""
+                cg_match = cg_df[
+                    cg_df[cg_name_col]
+                    .astype(str)
+                    .map(_nwst_normalize_member_name)
+                    == k
+                ]
+                if cg_match.empty:
+                    return ""
+                return str(cg_match.iloc[0][cg_cell_col]).strip()
+
+            data_rows = []
+
+            for row in all_values[1:]:
+                if not row:
+                    continue
+                if name_col_idx >= len(row):
+                    continue
+                name = str(row[name_col_idx]).strip() if row[name_col_idx] else ""
+                if name.lower() == "name":
+                    continue
+
+                cell_group = ""
+                if sheet_cell_col_idx is not None and sheet_cell_col_idx < len(row):
+                    cell_group = str(row[sheet_cell_col_idx]).strip()
+
+                combined_a = str(row[0]).strip() if row and len(row) > 0 and row[0] else ""
+                if (" - " in combined_a) and (not name or not cell_group):
+                    left, right = combined_a.split(" - ", 1)
+                    if not name:
+                        name = left.strip()
+                    if not cell_group:
+                        cell_group = right.strip()
+
+                if not name:
+                    continue
+
+                if not cell_group:
+                    cell_group = _cell_from_cg(name)
+                if not cell_group:
+                    continue
+
+                attendance = {
+                    saturday_dates_short[j]: (
+                        1
+                        if (
+                            col_indices[j] < len(row)
+                            and _nwst_attendance_present(row[col_indices[j]])
+                        )
+                        else 0
+                    )
+                    for j in range(len(col_indices))
                 }
-            )
+                data_rows.append(
+                    {
+                        "Name": name,
+                        "Cell Group": cell_group,
+                        "Name - Cell Group": f"{name} - {cell_group}",
+                        **attendance,
+                    }
+                )
 
-        if not data_rows:
-            return None, [], (
-                "No attendance rows matched **CG Combined** (or a Cell column on Attendance). "
-                "Check Name is in column A or B, cell on sheet or same spellings as CG Combined."
-            )
+            if not data_rows:
+                return None, [], (
+                    "No attendance rows matched **CG Combined** (or a Cell column on Attendance). "
+                    "Check Name is in column A or B, cell on sheet or same spellings as CG Combined."
+                )
 
-        df = pd.DataFrame(data_rows)
-        df = df.drop_duplicates(subset=["Name - Cell Group"], keep="first")
-        return df, saturday_dates_short, None
-    except Exception as e:
-        return None, [], f"Error loading Attendance for charts: {str(e)}"
+            df = pd.DataFrame(data_rows)
+            df = df.drop_duplicates(subset=["Name - Cell Group"], keep="first")
+            redis = get_redis_client()
+            if redis:
+                try:
+                    payload = {
+                        "columns": df.columns.tolist(),
+                        "rows": df.values.tolist(),
+                        "saturday_dates_short": saturday_dates_short,
+                    }
+                    redis.set(
+                        NWST_REDIS_ATTENDANCE_CHART_GRID_KEY,
+                        json.dumps(payload, default=str),
+                        ex=300,
+                    )
+                except Exception:
+                    pass
+            return df, saturday_dates_short, None
+        except APIError as e:
+            if attempt < transient_attempts - 1 and _nwst_sheet_api_transient(e):
+                time.sleep(1.0 * (2**attempt))
+                continue
+            hint = (
+                " (Google Sheets often returns this briefly; wait a minute and use **Sync**, "
+                "or check https://www.google.com/appsstatus )"
+                if _nwst_sheet_api_transient(e)
+                else ""
+            )
+            return None, [], f"Error loading Attendance for charts: {str(e)}{hint}"
+        except Exception as e:
+            return None, [], f"Error loading Attendance for charts: {str(e)}"
 
 
 @st.cache_data(ttl=300)
@@ -4059,6 +4112,12 @@ if current_page == "cg":
                             redis.set("nwst_last_sync_time", sync_time_str)
                         else:
                             st.warning("⚠️ Redis not configured, but data loaded from Google Sheets.")
+
+                        if redis:
+                            try:
+                                redis.delete(NWST_REDIS_ATTENDANCE_CHART_GRID_KEY)
+                            except Exception:
+                                pass
 
                         # Clear cache to force reload
                         st.cache_data.clear()
