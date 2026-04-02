@@ -1709,8 +1709,15 @@ def _nwst_attendance_y_tick_labels(tickvals):
     return [str(int(v)) for v in tickvals]
 
 
-def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
-    """Minimal line chart: attended cell members per Saturday (one line per cell group)."""
+def _nwst_make_attendance_rate_fig(
+    plot_df, date_cols, colors, daily_colors, y_axis_range=None
+):
+    """Minimal line chart: attended cell members per Saturday (one line per cell group).
+
+    ``y_axis_range`` — optional ``(y_lo, y_hi)`` for fixed vertical span (e.g. same scale
+    across per-cell tabs when Cell filter is All). Tick labels stay derived from ``plot_df``
+    (that cell's min, max, mean).
+    """
     plot_df = plot_df.copy()
     if NWST_ATTENDED_CELL_MEMBERS_COL not in plot_df.columns:
         plot_df[NWST_ATTENDED_CELL_MEMBERS_COL] = 0
@@ -1720,7 +1727,10 @@ def _nwst_make_attendance_rate_fig(plot_df, date_cols, colors, daily_colors):
     cell_order = sorted(plot_df["Cell Group"].unique(), key=str.lower)
     cg_to_color = {cg: line_colors[i] for i, cg in enumerate(cell_order)}
 
-    y_lo, y_hi = _nwst_count_y_axis_range(plot_df)
+    if y_axis_range is not None:
+        y_lo, y_hi = y_axis_range
+    else:
+        y_lo, y_hi = _nwst_count_y_axis_range(plot_df)
     y_mean = float(plot_df[NWST_ATTENDED_CELL_MEMBERS_COL].mean())
     fig = go.Figure()
     plot_bg = colors["background"]
@@ -1957,12 +1967,21 @@ def render_nwst_service_attendance_rate_charts(display_df, daily_colors, tab_eac
                 cell_entries.append((cg, plot_df_one))
         cell_entries.sort(key=lambda x: str(x[0]).lower())
         if len(cell_entries) > 1:
+            _combined_tab_range = pd.concat(
+                [df for _, df in cell_entries], ignore_index=True
+            )
+            _y_shared_lo, _y_shared_hi = _nwst_count_y_axis_range(_combined_tab_range)
+            _shared_range = (_y_shared_lo, _y_shared_hi)
             _tab_labels = [str(cg) for cg, _ in cell_entries]
             _cg_tabs = st.tabs(_tab_labels)
             for _i, (_, plot_df_one) in enumerate(cell_entries):
                 with _cg_tabs[_i]:
                     fig = _nwst_make_attendance_rate_fig(
-                        plot_df_one, chart_date_cols, colors, daily_colors
+                        plot_df_one,
+                        chart_date_cols,
+                        colors,
+                        daily_colors,
+                        y_axis_range=_shared_range,
                     )
                     st.plotly_chart(fig, use_container_width=True)
             return
