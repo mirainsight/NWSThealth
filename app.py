@@ -999,13 +999,7 @@ def _render_cell_breakdown_section(display_df, daily_colors):
   .nwst-cb-between-line {{
     height: 1px;
     background: rgba(255, 255, 255, 0.1);
-    margin-bottom: 0.55rem;
-  }}
-  .nwst-cb-between-accent {{
-    height: 3px;
-    width: min(28%, 10rem);
-    border-radius: 2px;
-    background: {prim};
+    margin-bottom: 0;
   }}
   .nwst-cb-h2--after-split {{
     margin-top: 0.35rem !important;
@@ -1081,7 +1075,6 @@ def _render_cell_breakdown_section(display_df, daily_colors):
     st.markdown(
         f'<div class="nwst-cb-between" role="presentation">'
         f'<div class="nwst-cb-between-line"></div>'
-        f'<div class="nwst-cb-between-accent"></div>'
         f"</div>"
         f'<p class="nwst-cb-h2 nwst-cb-h2--after-split">Gender</p>',
         unsafe_allow_html=True,
