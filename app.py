@@ -834,210 +834,14 @@ def _resolve_member_table_columns(df: pd.DataFrame) -> tuple[list[str], list[str
     return resolved_actual, resolved_labels
 
 
-_NWST_ALL_MEMBERS_IFRAME_CSS = """
-    .nwst-all-members-wrap {
-        overflow-x: auto;
-        margin: 0.35rem 0 1rem 0;
-        width: 100%;
-        -webkit-overflow-scrolling: touch;
+def _all_members_dataframe_column_config(table_df: pd.DataFrame) -> dict:
+    """Pin the first column so it stays visible when scrolling horizontally (Streamlit ``pinned``)."""
+    if table_df is None or table_df.empty or len(table_df.columns) == 0:
+        return {}
+    first_col = table_df.columns[0]
+    return {
+        first_col: st.column_config.TextColumn(str(first_col), pinned=True),
     }
-    .nwst-all-members-table {
-        width: max(100%, max-content);
-        border-collapse: separate;
-        border-spacing: 0;
-        font-family: 'Inter', sans-serif;
-        font-size: 0.9rem;
-    }
-    .nwst-all-members-table th {
-        text-align: left;
-        padding: 0.65rem 0.75rem;
-        border-bottom: 2px solid rgba(255, 255, 255, 0.12);
-        color: #999;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-size: 0.72rem;
-        white-space: nowrap;
-        background: #1a1a1a;
-    }
-    .nwst-all-members-table th.nwst-am-sort-th {
-        cursor: pointer;
-        user-select: none;
-    }
-    .nwst-all-members-table td {
-        padding: 0.55rem 0.75rem;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        color: #e8e8e8;
-        vertical-align: top;
-        background: #121212;
-    }
-    .nwst-all-members-table th:first-child,
-    .nwst-all-members-table td:first-child {
-        position: sticky;
-        left: 0;
-        z-index: 1;
-        min-width: 9rem;
-        max-width: 16rem;
-        white-space: normal;
-        word-break: break-word;
-        border-right: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 4px 0 8px -4px rgba(0, 0, 0, 0.75);
-    }
-    .nwst-all-members-table thead th:first-child {
-        z-index: 2;
-        background: #1a1a1a;
-    }
-    .nwst-all-members-table tbody td:first-child {
-        background: #121212;
-    }
-"""
-
-
-def _nwst_member_td_sort_attrs(col_name: str, sval: str) -> str:
-    """data-* attributes for client-side sort (lexicographic or numeric / date)."""
-    col_l = (col_name or "").lower().strip()
-    text_raw = "" if sval is None else str(sval).strip()
-    if col_l == "age":
-        try:
-            n = float(text_raw) if text_raw else float("nan")
-        except ValueError:
-            n = float("nan")
-        if n != n:
-            return ' data-sort-t="num" data-sort-v=""'
-        return f' data-sort-t="num" data-sort-v="{html.escape(f"{n:.6g}", quote=True)}"'
-    if "birth" in col_l:
-        dt = pd.to_datetime(text_raw, errors="coerce")
-        if pd.isna(dt):
-            return ' data-sort-t="num" data-sort-v=""'
-        try:
-            ts = int(pd.Timestamp(dt).timestamp())
-        except (ValueError, OSError):
-            return ' data-sort-t="num" data-sort-v=""'
-        return f' data-sort-t="num" data-sort-v="{ts}"'
-    v = text_raw.lower()
-    return f' data-sort-t="lex" data-sort-v="{html.escape(v, quote=True)}"'
-
-
-def render_all_members_html_table(table_df: pd.DataFrame) -> str:
-    """Inner HTML: All Members table with sticky first column and sort metadata on cells."""
-    if table_df is None or table_df.empty:
-        return ""
-
-    cols = [str(c) for c in table_df.columns]
-    header_parts = []
-    for c in cols:
-        header_parts.append(
-            '<th class="nwst-am-sort-th" '
-            'title="Double-click to sort; double-click again to reverse" '
-            f'data-label="{html.escape(c, quote=True)}">{html.escape(c)}</th>'
-        )
-    header_cells = "".join(header_parts)
-    body_rows = []
-    for _, row in table_df.iterrows():
-        cells = []
-        for c in cols:
-            raw = row[c]
-            sval = "" if pd.isna(raw) else str(raw).strip()
-            sa = _nwst_member_td_sort_attrs(c, sval)
-            cells.append(f"<td{sa}>{html.escape(sval)}</td>")
-        body_rows.append("<tr>" + "".join(cells) + "</tr>")
-
-    return (
-        '<div class="nwst-all-members-wrap">'
-        '<table class="nwst-all-members-table">'
-        f"<thead><tr>{header_cells}</tr></thead><tbody>{''.join(body_rows)}</tbody>"
-        "</table></div>"
-    )
-
-
-def display_all_members_interactive(table_df: pd.DataFrame) -> None:
-    """All Members table in an iframe: sticky column A + double-click header sort (client-side)."""
-    table_html = render_all_members_html_table(table_df)
-    if not table_html:
-        return
-    wrap_id = "nwst_am_" + hashlib.sha256(table_html.encode("utf-8")).hexdigest()[:16]
-    n = len(table_df)
-    iframe_h = int(max(320, min(920, 120 + n * 28)))
-    js_wrap = json.dumps(wrap_id)
-    full = f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"/>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-body {{ margin: 0; background: #0e1117; }}
-{_NWST_ALL_MEMBERS_IFRAME_CSS}
-</style></head><body>
-<div id="{wrap_id}">{table_html}</div>
-<script>
-(function() {{
-  const root = document.getElementById({js_wrap});
-  if (!root) return;
-  const table = root.querySelector('table.nwst-all-members-table');
-  if (!table) return;
-  const tbody = table.querySelector('tbody');
-  const thead = table.querySelector('thead');
-  const ths = Array.from(table.querySelectorAll('thead th.nwst-am-sort-th'));
-  if (!tbody || !thead || ths.length === 0) return;
-  let sortCol = -1;
-  let sortAsc = true;
-  function numFromTd(td) {{
-    const v = td.getAttribute('data-sort-v');
-    if (v === null || v === '') return NaN;
-    const n = parseFloat(v);
-    return Number.isFinite(n) ? n : NaN;
-  }}
-  function cmpRows(r1, r2, colIdx) {{
-    const ta = r1.children[colIdx];
-    const tb = r2.children[colIdx];
-    if (!ta || !tb) return 0;
-    const typ = ta.getAttribute('data-sort-t') || 'lex';
-    if (typ === 'num') {{
-      const na = numFromTd(ta), nb = numFromTd(tb);
-      const aNa = Number.isNaN(na), bNa = Number.isNaN(nb);
-      if (aNa && bNa) return 0;
-      if (aNa) return 1;
-      if (bNa) return -1;
-      return na - nb;
-    }}
-    const va = (ta.getAttribute('data-sort-v') || '');
-    const vb = (tb.getAttribute('data-sort-v') || '');
-    return va.localeCompare(vb);
-  }}
-  function redrawIndicators(activeIdx) {{
-    ths.forEach((th, i) => {{
-      const base = th.getAttribute('data-label') || '';
-      const arrow = (i === activeIdx) ? (sortAsc ? ' \\u25B2' : ' \\u25BC') : '';
-      th.textContent = base + arrow;
-    }});
-  }}
-  function applySort(idx) {{
-    if (sortCol === idx) sortAsc = !sortAsc;
-    else {{ sortCol = idx; sortAsc = true; }}
-    const rows = Array.from(tbody.querySelectorAll('tr'));
-    rows.sort((a, b) => {{
-      const c = cmpRows(a, b, idx);
-      return sortAsc ? c : -c;
-    }});
-    rows.forEach(row => tbody.appendChild(row));
-    redrawIndicators(idx);
-  }}
-  thead.addEventListener('dblclick', function(ev) {{
-    let t = ev.target;
-    while (t && t.nodeType !== 1) t = t.parentNode;
-    const th = t && typeof t.closest === 'function' ? t.closest('th.nwst-am-sort-th') : null;
-    if (!th || !table.contains(th)) return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    const idx = ths.indexOf(th);
-    if (idx < 0) return;
-    applySort(idx);
-  }}, true);
-}})();
-</script>
-</body></html>"""
-    try:
-        components.html(full, height=iframe_h, scrolling=True, tab_index=0)
-    except TypeError:
-        components.html(full, height=iframe_h, scrolling=True)
 
 
 def _render_cg_detailed_members_section(df, _daily_colors):
@@ -1058,7 +862,12 @@ def _render_cg_detailed_members_section(df, _daily_colors):
     table_df.columns = display_labels
 
     st.markdown("#### All Members")
-    display_all_members_interactive(table_df)
+    st.dataframe(
+        table_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config=_all_members_dataframe_column_config(table_df),
+    )
 
     _miss_set = set(_DESIRED_MEMBER_TABLE_COLUMNS) - set(display_labels)
     if _miss_set:
