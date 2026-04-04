@@ -834,13 +834,21 @@ def _resolve_member_table_columns(df: pd.DataFrame) -> tuple[list[str], list[str
     return resolved_actual, resolved_labels
 
 
+# Streamlit "medium" TextColumn width is 200px; first column uses 60% (~40% narrower).
+_NWST_MEMBERS_FIRST_COL_WIDTH_PX = int(200 * 0.6)
+
+
 def _all_members_dataframe_column_config(table_df: pd.DataFrame) -> dict:
     """Pin the first column so it stays visible when scrolling horizontally (Streamlit ``pinned``)."""
     if table_df is None or table_df.empty or len(table_df.columns) == 0:
         return {}
     first_col = table_df.columns[0]
     return {
-        first_col: st.column_config.TextColumn(str(first_col), pinned=True),
+        first_col: st.column_config.TextColumn(
+            str(first_col),
+            pinned=True,
+            width=_NWST_MEMBERS_FIRST_COL_WIDTH_PX,
+        ),
     }
 
 
