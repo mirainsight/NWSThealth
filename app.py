@@ -1,6 +1,7 @@
 import html
 import importlib.util
 import os
+import re
 import time
 from pathlib import Path
 import streamlit as st
@@ -2472,6 +2473,102 @@ def _monthly_table_month_columns(df):
     return [c for c in df.columns if c not in fixed]
 
 
+_MONTHLY_STATUS_SORT_RANK = {
+    "Follow Up": 0,
+    "Irregular": 1,
+    "Regular": 2,
+    "—": 9,
+}
+
+
+def _monthly_table_sortable_columns(df):
+    """Display columns (excludes internal _tile_status)."""
+    if df is None or df.empty:
+        return []
+    return [c for c in df.columns if c != "_tile_status"]
+
+
+def _health_string_sort_key(val):
+    """Parse Health like '3/12 (25.0%)' for numeric sort; missing → NaN."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return float("nan")
+    t = str(val).strip()
+    if t in ("", "—"):
+        return float("nan")
+    m = re.search(r"\(([\d.]+)%\)\s*$", t)
+    if m:
+        return float(m.group(1))
+    m2 = re.search(r"^(\d+)\s*/\s*(\d+)", t)
+    if m2:
+        a, b = int(m2.group(1)), int(m2.group(2))
+        if b > 0:
+            return 100.0 * a / b
+    return float("nan")
+
+
+def _monthly_month_cell_sort_key(val):
+    """Severity order for month status cells (matches worst-status heuristic)."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return 99
+    t = str(val).strip()
+    return _MONTHLY_STATUS_SORT_RANK.get(t, 50)
+
+
+def sort_monthly_status_dataframe(df, sort_column, ascending=True):
+    """
+    Sort monthly matrix rows by a display column. Health uses attendance % when present;
+    month columns use Follow Up / Irregular / Regular / —; Cell and Member are case-insensitive.
+    """
+    if df is None or df.empty or not sort_column:
+        return df
+    if sort_column not in df.columns or sort_column == "_tile_status":
+        return df
+    out = df.copy()
+    asc_tuple = (ascending, True, True)
+    if sort_column == "Health":
+        sk = out[sort_column].map(_health_string_sort_key)
+        out = out.assign(
+            _sk=sk,
+            _mk=out["Member"].fillna("").astype(str).str.strip().str.lower(),
+            _ck=out["Cell"].fillna("").astype(str).str.strip().str.lower(),
+        )
+        out = out.sort_values(
+            ["_sk", "_mk", "_ck"],
+            ascending=asc_tuple,
+            na_position="last",
+        )
+        out = out.drop(columns=["_sk", "_mk", "_ck"])
+    elif sort_column in ("Cell", "Member"):
+        sk = (
+            out[sort_column]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
+        other = "Member" if sort_column == "Cell" else "Cell"
+        out = out.assign(
+            _sk=sk,
+            _ok=out[other].fillna("").astype(str).str.strip().str.lower(),
+        )
+        out = out.sort_values(["_sk", "_ok"], ascending=(ascending, True), na_position="last")
+        out = out.drop(columns=["_sk", "_ok"])
+    else:
+        sk = out[sort_column].map(_monthly_month_cell_sort_key)
+        out = out.assign(
+            _sk=sk,
+            _mk=out["Member"].fillna("").astype(str).str.strip().str.lower(),
+            _ck=out["Cell"].fillna("").astype(str).str.strip().str.lower(),
+        )
+        out = out.sort_values(
+            ["_sk", "_mk", "_ck"],
+            ascending=asc_tuple,
+            na_position="last",
+        )
+        out = out.drop(columns=["_sk", "_mk", "_ck"])
+    return out.reset_index(drop=True)
+
+
 def _worst_status_last_three_months(row, month_cols):
     """
     Fallback Health coloring when sheet tile status is missing: worst of the last
@@ -2560,7 +2657,7 @@ def render_newcomer_list_html_table(df: pd.DataFrame, columns: list) -> str:
     )
 
 
-def render_monthly_status_html_table(df):
+def render_monthly_status_html_table(df, sort_column=None, sort_ascending=True):
     """Render monthly status matrix as HTML with bold status labels (tile-matching colors)."""
     if df is None or df.empty:
         return ""
@@ -2582,9 +2679,13 @@ def render_monthly_status_html_table(df):
     month_cols = _monthly_table_month_columns(df)
     display_columns = [c for c in df.columns if c != "_tile_status"]
 
-    header_cells = "".join(
-        f"<th>{html.escape(str(c))}</th>" for c in display_columns
-    )
+    header_parts = []
+    for c in display_columns:
+        label = html.escape(str(c))
+        if sort_column is not None and str(sort_column) == str(c):
+            label += " \u25B2" if sort_ascending else " \u25BC"
+        header_parts.append(f"<th>{label}</th>")
+    header_cells = "".join(header_parts)
     body_rows = []
     has_tile_col = "_tile_status" in df.columns
     for _, row in df.iterrows():
@@ -3036,11 +3137,32 @@ def _render_nwst_analytics_individual_attendance(colors, cell_to_zone_map):
         st.info("No members match the current filters.")
         return
 
-    _mwf = _filtered.copy()
+    _ia_sort_opts = _monthly_table_sortable_columns(_filtered)
+    _ia_s1, _ia_s2 = st.columns(2)
+    with _ia_s1:
+        _ia_sort_col = st.selectbox(
+            "Sort by column",
+            options=_ia_sort_opts,
+            index=_ia_sort_opts.index("Member") if "Member" in _ia_sort_opts else 0,
+            key="analytics_ia_sort_column",
+        )
+    with _ia_s2:
+        _ia_sort_dir = st.selectbox(
+            "Sort direction",
+            options=["Ascending", "Descending"],
+            index=0,
+            key="analytics_ia_sort_direction",
+        )
+    _ia_asc = _ia_sort_dir == "Ascending"
+    _filtered_sorted = sort_monthly_status_dataframe(_filtered, _ia_sort_col, _ia_asc)
+
+    _mwf = _filtered_sorted.copy()
     if _sel_names:
         _show = _mwf.drop(columns=["_zone"], errors="ignore")
         st.markdown(
-            render_monthly_status_html_table(_show),
+            render_monthly_status_html_table(
+                _show, sort_column=_ia_sort_col, sort_ascending=_ia_asc
+            ),
             unsafe_allow_html=True,
         )
     else:
@@ -3051,13 +3173,17 @@ def _render_nwst_analytics_individual_attendance(colors, cell_to_zone_map):
                 with _ztabs[_ti]:
                     _sub = _mwf[_mwf["_zone"] == zname].drop(columns=["_zone"])
                     st.markdown(
-                        render_monthly_status_html_table(_sub),
+                        render_monthly_status_html_table(
+                            _sub, sort_column=_ia_sort_col, sort_ascending=_ia_asc
+                        ),
                         unsafe_allow_html=True,
                     )
         else:
             _show = _mwf.drop(columns=["_zone"])
             st.markdown(
-                render_monthly_status_html_table(_show),
+                render_monthly_status_html_table(
+                    _show, sort_column=_ia_sort_col, sort_ascending=_ia_asc
+                ),
                 unsafe_allow_html=True,
             )
 
@@ -4428,7 +4554,31 @@ if current_page == "cg":
                             if _filtered_monthly.empty:
                                 st.info("No members match the current filters.")
                             else:
-                                _mwf = _filtered_monthly.copy()
+                                _mh_sort_opts = _monthly_table_sortable_columns(
+                                    _filtered_monthly
+                                )
+                                _mh_s1, _mh_s2 = st.columns(2)
+                                with _mh_s1:
+                                    _mh_sort_col = st.selectbox(
+                                        "Sort by column",
+                                        options=_mh_sort_opts,
+                                        index=_mh_sort_opts.index("Member")
+                                        if "Member" in _mh_sort_opts
+                                        else 0,
+                                        key="monthly_health_sort_column",
+                                    )
+                                with _mh_s2:
+                                    _mh_sort_dir = st.selectbox(
+                                        "Sort direction",
+                                        options=["Ascending", "Descending"],
+                                        index=0,
+                                        key="monthly_health_sort_direction",
+                                    )
+                                _mh_asc = _mh_sort_dir == "Ascending"
+                                _sorted_monthly = sort_monthly_status_dataframe(
+                                    _filtered_monthly, _mh_sort_col, _mh_asc
+                                )
+                                _mwf = _sorted_monthly.copy()
                                 _mwf["_monthly_tab_cell"] = (
                                     _mwf["Cell"]
                                     .fillna("")
@@ -4443,7 +4593,11 @@ if current_page == "cg":
                                 # Name or Cell Health tile filter: one table so matches are not split across tabs.
                                 if _sel_names_mh or _ch_tile_f:
                                     st.markdown(
-                                        render_monthly_status_html_table(_filtered_monthly),
+                                        render_monthly_status_html_table(
+                                            _sorted_monthly,
+                                            sort_column=_mh_sort_col,
+                                            sort_ascending=_mh_asc,
+                                        ),
                                         unsafe_allow_html=True,
                                     )
                                 elif cell_filter == "All" and len(_cells_for_tabs) > 1:
@@ -4454,12 +4608,20 @@ if current_page == "cg":
                                                 columns=["_monthly_tab_cell"]
                                             )
                                             st.markdown(
-                                                render_monthly_status_html_table(_sub),
+                                                render_monthly_status_html_table(
+                                                    _sub,
+                                                    sort_column=_mh_sort_col,
+                                                    sort_ascending=_mh_asc,
+                                                ),
                                                 unsafe_allow_html=True,
                                             )
                                 else:
                                     st.markdown(
-                                        render_monthly_status_html_table(_filtered_monthly),
+                                        render_monthly_status_html_table(
+                                            _sorted_monthly,
+                                            sort_column=_mh_sort_col,
+                                            sort_ascending=_mh_asc,
+                                        ),
                                         unsafe_allow_html=True,
                                     )
                         else:
