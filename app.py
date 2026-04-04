@@ -844,7 +844,7 @@ def _nwst_age_bucket_series(series: pd.Series) -> pd.Series:
     return out
 
 
-def _render_cell_breakdown_section(display_df, daily_colors):
+def _render_cell_breakdown_section(display_df, daily_colors, filter_scope: str = "all"):
     """Demographics for current roster (after Cell filter): age bars + segment chips + gender bars."""
     if display_df is None or display_df.empty:
         st.info("No member data for cell breakdown.")
@@ -1024,13 +1024,19 @@ def _render_cell_breakdown_section(display_df, daily_colors):
         f"flex:0 0 3.2rem;text-align:right;font-size:0.88rem;font-weight:600;color:{text};"
     )
 
-    pick = st.radio(
-        "Quick filter",
+    # Tab-style control (full width); avoids uneven radio + dial layout on mobile.
+    _cb_key_scope = re.sub(r"[^a-zA-Z0-9]+", "_", str(filter_scope))[:48] or "all"
+    pick = st.segmented_control(
+        "Filter",
         seg_labels,
-        horizontal=True,
-        key="nwst_cell_breakdown_segment",
+        selection_mode="single",
+        default=seg_labels[0],
+        key=f"nwst_cb_seg_{_cb_key_scope}",
         label_visibility="collapsed",
+        width="stretch",
     )
+    if pick is None or pick not in seg_labels:
+        pick = seg_labels[0]
     sid = seg_ids[seg_labels.index(pick)]
     filt = _apply_segment_id(work, sid)
     if filt.empty:
@@ -1135,9 +1141,9 @@ def _render_cell_breakdown_section(display_df, daily_colors):
 
 
 @st.fragment
-def _nwst_cell_breakdown_fragment(display_df, daily_colors):
+def _nwst_cell_breakdown_fragment(display_df, daily_colors, filter_scope: str):
     """Only this block reruns when the quick filter changes (not the whole CG Health page)."""
-    _render_cell_breakdown_section(display_df, daily_colors)
+    _render_cell_breakdown_section(display_df, daily_colors, filter_scope)
 
 
 _DESIRED_MEMBER_TABLE_COLUMNS = [
@@ -1226,17 +1232,29 @@ def _resolve_member_table_columns(df: pd.DataFrame) -> tuple[list[str], list[str
     return resolved_actual, resolved_labels
 
 
+# Wider than Streamlit ``large`` (400px) so long notes are readable without excessive wrap.
+_NWST_MEMBERS_NOTES_COL_WIDTH_PX = 560
+
+
 def _all_members_dataframe_column_config(table_df: pd.DataFrame) -> dict:
-    """Pin the first column; all widths default to Streamlit auto-size (fit to contents)."""
+    """Pin the first column; Notes gets a very wide width; other columns use Streamlit defaults."""
     if table_df is None or table_df.empty or len(table_df.columns) == 0:
         return {}
     first_col = table_df.columns[0]
-    return {
+    cfg = {
         first_col: st.column_config.TextColumn(
             str(first_col),
             pinned=True,
         ),
     }
+    for c in table_df.columns:
+        if str(c).strip().lower() == "notes":
+            cfg[c] = st.column_config.TextColumn(
+                str(c),
+                width=_NWST_MEMBERS_NOTES_COL_WIDTH_PX,
+            )
+            break
+    return cfg
 
 
 def _render_cg_detailed_members_section(df, _daily_colors):
@@ -5017,7 +5035,7 @@ if current_page == "cg":
                     st.info("No member data to show individual attendance.")
 
             with st.expander("📊 CELL BREAKDOWN", expanded=False):
-                _nwst_cell_breakdown_fragment(display_df, daily_colors)
+                _nwst_cell_breakdown_fragment(display_df, daily_colors, cell_filter)
 
             with st.expander("📈 CELL ATTENDANCE", expanded=False):
                 st.markdown("")
