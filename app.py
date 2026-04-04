@@ -798,6 +798,52 @@ def _nwst_age_bucket_sort_key(label: str):
         return (5000, hash(label) % 10_000)
 
 
+def _nwst_status_type_vectorized(col: pd.Series) -> pd.Series:
+    """Same categories as extract_cell_sheet_status_type, without per-row Python calls."""
+    s = col.fillna("").astype(str)
+    out = pd.Series(None, index=col.index, dtype=object)
+    assigned = pd.Series(False, index=col.index)
+    for label, mk in (
+        ("Regular", s.str.startswith("Regular:", na=False)),
+        ("Irregular", s.str.startswith("Irregular:", na=False)),
+        ("New", s.str.startswith("New", na=False)),
+        ("Follow Up", s.str.startswith("Follow Up:", na=False)),
+        ("Red", s.str.startswith("Red:", na=False)),
+        ("Graduated", s.str.startswith("Graduated:", na=False)),
+    ):
+        take = mk & ~assigned
+        out.loc[take] = label
+        assigned |= take
+    return out
+
+
+def _nwst_normalize_gender_series(col: pd.Series) -> pd.Series:
+    """Vectorized _nwst_normalize_gender_value (Male / Female / None)."""
+    s = col.fillna("").astype(str).str.strip().str.lower()
+    out = pd.Series(None, index=col.index, dtype=object)
+    male_set = {"m", "male", "man", "men", "boy", "boys"}
+    female_set = {"f", "female", "woman", "women", "girl", "girls", "lady", "ladies"}
+    m_male = s.isin(male_set) | s.str.startswith("male", na=False)
+    m_female = s.isin(female_set) | s.str.startswith("female", na=False)
+    out.loc[m_male] = "Male"
+    out.loc[m_female & ~m_male] = "Female"
+    return out
+
+
+def _nwst_age_bucket_series(series: pd.Series) -> pd.Series:
+    """Vectorized age buckets: '<13', year strings, or 'Unknown'."""
+    num = pd.to_numeric(series, errors="coerce")
+    first_digits = series.astype(str).str.extract(r"(\d+)", expand=False)
+    num_from_str = pd.to_numeric(first_digits, errors="coerce")
+    num_f = num.where(num.notna(), num_from_str)
+    out = pd.Series("Unknown", index=series.index, dtype=object)
+    v = num_f.notna()
+    out.loc[v & (num_f < 13)] = "<13"
+    ge = v & (num_f >= 13)
+    out.loc[ge] = num_f.loc[ge].astype("int64", copy=False).astype(str)
+    return out
+
+
 def _render_cell_breakdown_section(display_df, daily_colors):
     """Demographics for current roster (after Cell filter): age bars + segment chips + gender bars."""
     if display_df is None or display_df.empty:
@@ -827,16 +873,28 @@ def _render_cell_breakdown_section(display_df, daily_colors):
             break
 
     if status_col:
-        work["_cb_status"] = work[status_col].apply(extract_cell_sheet_status_type)
+        work["_cb_status"] = _nwst_status_type_vectorized(work[status_col])
     else:
-        work["_cb_status"] = None
+        work["_cb_status"] = pd.Series(None, index=work.index, dtype=object)
+
+    if gender_col:
+        work["_cb_gender"] = _nwst_normalize_gender_series(work[gender_col])
+    else:
+        work["_cb_gender"] = pd.Series(None, index=work.index, dtype=object)
+
+    if role_col:
+        work["_cb_role_ne"] = work[role_col].notna() & (
+            work[role_col].astype(str).str.strip() != ""
+        )
+    else:
+        work["_cb_role_ne"] = pd.Series(False, index=work.index)
 
     # Segment filter options: parallel lists for st.radio
     seg_labels = ["All"]
     seg_ids = ["all"]
 
+    gser = work["_cb_gender"]
     if gender_col:
-        gser = work[gender_col].apply(_nwst_normalize_gender_value)
         if (gser == "Male").any():
             seg_labels.append("Male")
             seg_ids.append("male")
@@ -844,15 +902,9 @@ def _render_cell_breakdown_section(display_df, daily_colors):
             seg_labels.append("Female")
             seg_ids.append("female")
 
-    if role_col:
-        def _role_nonempty(r):
-            if r is None or (isinstance(r, float) and pd.isna(r)):
-                return False
-            return str(r).strip() != ""
-
-        if work[role_col].apply(_role_nonempty).any():
-            seg_labels.append("Leader")
-            seg_ids.append("leader")
+    if role_col and bool(work["_cb_role_ne"].any()):
+        seg_labels.append("Leader")
+        seg_ids.append("leader")
 
     if status_col:
         for st_lab in ("New", "Regular", "Irregular", "Follow Up"):
@@ -864,11 +916,11 @@ def _render_cell_breakdown_section(display_df, daily_colors):
         if seg == "all":
             return df
         if seg == "male" and gender_col:
-            return df[df[gender_col].apply(_nwst_normalize_gender_value) == "Male"]
+            return df[df["_cb_gender"] == "Male"]
         if seg == "female" and gender_col:
-            return df[df[gender_col].apply(_nwst_normalize_gender_value) == "Female"]
+            return df[df["_cb_gender"] == "Female"]
         if seg == "leader" and role_col:
-            return df[df[role_col].apply(_role_nonempty)]
+            return df[df["_cb_role_ne"]]
         if seg.startswith("status:") and status_col:
             want = seg.split(":", 1)[1]
             return df[df["_cb_status"] == want]
@@ -880,8 +932,11 @@ def _render_cell_breakdown_section(display_df, daily_colors):
     track = "#262626"
     bar_female = "#7E3FF2"
 
-    st.markdown(
-        f"""
+    _css_sig = f"nwst_cb|{prim}|{text}|{muted}|{track}"
+    if st.session_state.get("_nwst_cb_css_sig") != _css_sig:
+        st.session_state["_nwst_cb_css_sig"] = _css_sig
+        st.markdown(
+            f"""
 <style>
   .nwst-cb-wrap {{
     font-family: 'Inter', sans-serif;
@@ -903,7 +958,7 @@ def _render_cell_breakdown_section(display_df, daily_colors):
     min-height: 1.65rem;
   }}
   .nwst-cb-lbl {{
-    flex: 0 0 3.5rem;
+    flex: 0 0 4.25rem;
     font-size: 0.88rem;
     color: {text};
     white-space: nowrap;
@@ -934,10 +989,27 @@ def _render_cell_breakdown_section(display_df, daily_colors):
     color: {muted};
     margin: 0.35rem 0 0 0;
   }}
+  .nwst-cb-between {{
+    margin: 1.65rem 0 0.95rem 0;
+  }}
+  .nwst-cb-between-line {{
+    height: 1px;
+    background: rgba(255, 255, 255, 0.1);
+    margin-bottom: 0.55rem;
+  }}
+  .nwst-cb-between-accent {{
+    height: 3px;
+    width: min(28%, 10rem);
+    border-radius: 2px;
+    background: {prim};
+  }}
+  .nwst-cb-h2--after-split {{
+    margin-top: 0.35rem !important;
+  }}
 </style>
 """,
-        unsafe_allow_html=True,
-    )
+            unsafe_allow_html=True,
+        )
 
     pick = st.radio(
         "Quick filter",
@@ -963,19 +1035,15 @@ def _render_cell_breakdown_section(display_df, daily_colors):
             unsafe_allow_html=True,
         )
     else:
-        bucket_counts = defaultdict(int)
-        for _, row in filt.iterrows():
-            b = _nwst_age_bucket_label(row.get(age_col))
-            lab = b if b is not None else "Unknown"
-            bucket_counts[lab] += 1
-        n_age = sum(bucket_counts.values())
+        bucket_counts = _nwst_age_bucket_series(filt[age_col]).value_counts().to_dict()
+        n_age = int(sum(bucket_counts.values()))
         if n_age == 0:
             st.caption("No age values to chart.")
         else:
             ordered = sorted(bucket_counts.keys(), key=_nwst_age_bucket_sort_key)
             parts = ['<div class="nwst-cb-wrap">']
             for lab in ordered:
-                cnt = bucket_counts[lab]
+                cnt = int(bucket_counts[lab])
                 pct = 100.0 * cnt / n_age
                 label_e = html.escape(str(lab), quote=True)
                 w_e = html.escape(f"{pct:.1f}", quote=True)
@@ -992,7 +1060,11 @@ def _render_cell_breakdown_section(display_df, daily_colors):
             st.markdown("".join(parts), unsafe_allow_html=True)
 
     st.markdown(
-        f'<p class="nwst-cb-h2">Gender</p>',
+        f'<div class="nwst-cb-between" role="presentation">'
+        f'<div class="nwst-cb-between-line"></div>'
+        f'<div class="nwst-cb-between-accent"></div>'
+        f"</div>"
+        f'<p class="nwst-cb-h2 nwst-cb-h2--after-split">Gender</p>',
         unsafe_allow_html=True,
     )
 
@@ -1004,8 +1076,8 @@ def _render_cell_breakdown_section(display_df, daily_colors):
         return
 
     sub_g = filt
-    males = sub_g[sub_g[gender_col].apply(_nwst_normalize_gender_value) == "Male"]
-    females = sub_g[sub_g[gender_col].apply(_nwst_normalize_gender_value) == "Female"]
+    males = sub_g[sub_g["_cb_gender"] == "Male"]
+    females = sub_g[sub_g["_cb_gender"] == "Female"]
     n_m = len(males)
     n_f = len(females)
     denom = n_m + n_f
@@ -1026,14 +1098,14 @@ def _render_cell_breakdown_section(display_df, daily_colors):
     parts_g = [
         '<div class="nwst-cb-wrap">',
         f'<div class="nwst-cb-row">'
-        f'<span class="nwst-cb-lbl">Men</span>'
+        f'<span class="nwst-cb-lbl">Male</span>'
         f'<div class="nwst-cb-track">'
         f'<div class="nwst-cb-fill" style="width:{pm:.2f}%;background:{prim};"></div>'
         f"</div>"
         f'<span class="nwst-cb-pct">{html.escape(f"{pm:.1f}", quote=True)}%</span>'
         f"</div>",
         f'<div class="nwst-cb-row">'
-        f'<span class="nwst-cb-lbl">Women</span>'
+        f'<span class="nwst-cb-lbl">Female</span>'
         f'<div class="nwst-cb-track">'
         f'<div class="nwst-cb-fill" style="width:{pf:.2f}%;background:{female_e};"></div>'
         f"</div>"
@@ -1044,6 +1116,12 @@ def _render_cell_breakdown_section(display_df, daily_colors):
     st.markdown("".join(parts_g), unsafe_allow_html=True)
     if note:
         st.markdown(note, unsafe_allow_html=True)
+
+
+@st.fragment
+def _nwst_cell_breakdown_fragment(display_df, daily_colors):
+    """Only this block reruns when the quick filter changes (not the whole CG Health page)."""
+    _render_cell_breakdown_section(display_df, daily_colors)
 
 
 _DESIRED_MEMBER_TABLE_COLUMNS = [
@@ -4923,14 +5001,7 @@ if current_page == "cg":
                     st.info("No member data to show individual attendance.")
 
             with st.expander("📊 CELL BREAKDOWN", expanded=False):
-                st.markdown(
-                    f"<p style='color: {daily_colors.get('text_muted', '#999999')}; font-family: Inter, sans-serif; "
-                    f"font-size: 0.85rem; margin: 0 0 1rem 0;'>"
-                    f"Age and gender for the roster above (respects the <b>Cell</b> filter). "
-                    f"Quick filters narrow both charts; <b>Leader</b> = non-empty <b>Role</b>.</p>",
-                    unsafe_allow_html=True,
-                )
-                _render_cell_breakdown_section(display_df, daily_colors)
+                _nwst_cell_breakdown_fragment(display_df, daily_colors)
 
             with st.expander("📈 CELL ATTENDANCE", expanded=False):
                 st.markdown("")
