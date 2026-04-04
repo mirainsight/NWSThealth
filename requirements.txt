@@ -1,7 +1,8 @@
 streamlit>=1.40.0
+Pillow>=10.0.0
 gspread==6.2.1
 google-auth-oauthlib==1.2.4
 google-auth-httplib2==0.2.0
 pandas>=2.2.0
 upstash-redis==1.6.0
-plotly>=5.18
+plotly>=5.18.0
