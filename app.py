@@ -834,35 +834,17 @@ def _resolve_member_table_columns(df: pd.DataFrame) -> tuple[list[str], list[str
     return resolved_actual, resolved_labels
 
 
-# Streamlit "medium" TextColumn width is 200px; first column uses 60% (~40% narrower).
-_NWST_MEMBERS_FIRST_COL_WIDTH_PX = int(200 * 0.6)
-_NWST_MEMBERS_AGE_COL_WIDTH_PX = 52
-_NWST_MEMBERS_GENDER_COL_WIDTH_PX = 100
-_NWST_MEMBERS_BIRTHDAY_COL_WIDTH_PX = 120
-
-
 def _all_members_dataframe_column_config(table_df: pd.DataFrame) -> dict:
-    """Pin the first column; tighten Age / Gender / Birthday widths."""
+    """Pin the first column; all widths default to Streamlit auto-size (fit to contents)."""
     if table_df is None or table_df.empty or len(table_df.columns) == 0:
         return {}
-    cols = list(table_df.columns)
-    first_col = cols[0]
-    cfg = {
+    first_col = table_df.columns[0]
+    return {
         first_col: st.column_config.TextColumn(
             str(first_col),
             pinned=True,
-            width=_NWST_MEMBERS_FIRST_COL_WIDTH_PX,
         ),
     }
-    for c in cols[1:]:
-        lab = str(c).strip().lower()
-        if lab == "age":
-            cfg[c] = st.column_config.TextColumn(str(c), width=_NWST_MEMBERS_AGE_COL_WIDTH_PX)
-        elif lab == "gender":
-            cfg[c] = st.column_config.TextColumn(str(c), width=_NWST_MEMBERS_GENDER_COL_WIDTH_PX)
-        elif "birth" in lab:
-            cfg[c] = st.column_config.TextColumn(str(c), width=_NWST_MEMBERS_BIRTHDAY_COL_WIDTH_PX)
-    return cfg
 
 
 def _render_cg_detailed_members_section(df, _daily_colors):
