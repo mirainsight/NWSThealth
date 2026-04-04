@@ -1223,7 +1223,7 @@ def _nwst_pil_font(size: int):
 
 
 def _nwst_cell_health_kpi_png_b64(display_df, cell_filter, daily_colors) -> str:
-    """Rasterize current Cell Health KPI grid (respects cell filter) for clipboard export."""
+    """Text-only PNG of Cell Health metrics (cell name, status labels, %, WoW, counts) for clipboard."""
     from PIL import Image, ImageDraw
 
     if display_df is None or display_df.empty:
@@ -1307,45 +1307,48 @@ def _nwst_cell_health_kpi_png_b64(display_df, cell_filter, daily_colors) -> str:
         else str(cell_filter).strip()
     )
 
-    # Larger typography than the original export (user request); palette matches the live app.
-    W, pad, gap, radius = 1240, 40, 20, 14
-    cols = 2 if len(cards) == 4 else 3
-    rows = (len(cards) + cols - 1) // cols
-    card_w = (W - pad * 2 - gap * (cols - 1)) // cols
-    card_h = 198
-    title_block = 96
-    H = pad * 2 + title_block + rows * card_h + max(0, rows - 1) * gap
-
-    img = Image.new("RGB", (W, H), (11, 11, 11))
-    draw = ImageDraw.Draw(img)
-    f_title = _nwst_pil_font(26)
-    f_scope = _nwst_pil_font(19)
-    f_lbl = _nwst_pil_font(15)
-    f_pct = _nwst_pil_font(48)
-    f_wow = _nwst_pil_font(16)
-    f_sub = _nwst_pil_font(16)
-    border_rgb = (198, 123, 79)
-
-    draw.text((pad, pad), "CELL HEALTH", fill=title_rgb, font=f_title)
-    draw.text((pad, pad + 38), scope_label, fill=(190, 190, 190), font=f_scope)
-
     def _parse_hex(h):
         h = h.lstrip("#")
         return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4)) if len(h) == 6 else (255, 255, 255)
 
-    for i, (label, pct, n_mem, col_hex, wow_txt) in enumerate(cards):
-        r, c = divmod(i, cols)
-        x0 = pad + c * (card_w + gap)
-        y0 = pad + title_block + r * (card_h + gap)
-        x1, y1 = x0 + card_w, y0 + card_h
-        draw.rounded_rectangle([x0, y0, x1, y1], radius=radius, outline=border_rgb, width=2, fill=(24, 24, 24))
+    # Text-only export: no card frames — cell name, status labels, percentages, WoW + counts.
+    W, pad = 820, 40
+    row_gap = 20
+    header_after_cell = 36
+    f_title = _nwst_pil_font(24)
+    f_cell = _nwst_pil_font(22)
+    f_lbl = _nwst_pil_font(17)
+    f_pct = _nwst_pil_font(46)
+    f_meta = _nwst_pil_font(15)
+
+    img = Image.new("RGB", (W, 3200), (11, 11, 11))
+    draw = ImageDraw.Draw(img)
+
+    def _place(y_cursor, text, font, fill):
+        top = int(y_cursor)
+        draw.text((pad, top), text, fill=fill, font=font)
+        return float(draw.textbbox((pad, top), text, font=font)[3])
+
+    y = float(pad)
+    y = _place(y, "CELL HEALTH", f_title, title_rgb)
+    y += row_gap
+    y = _place(y, scope_label, f_cell, (228, 228, 228))
+    y += header_after_cell
+
+    for label, pct, n_mem, col_hex, wow_txt in cards:
         col_rgb = _parse_hex(col_hex)
-        tx = x0 + 16
-        ty = y0 + 14
-        draw.text((tx, ty), label, fill=(200, 200, 200), font=f_lbl)
-        draw.text((tx, ty + 28), f"{pct:.0f}%", fill=col_rgb, font=f_pct)
-        draw.text((tx, ty + 100), wow_txt[:44], fill=(160, 210, 200), font=f_wow)
-        draw.text((tx, y1 - 34), f"{n_mem} members", fill=(170, 170, 170), font=f_sub)
+        y = _place(y, label, f_lbl, (215, 215, 215))
+        y += 6
+        y = _place(y, f"{pct:.0f}%", f_pct, col_rgb)
+        y += 8
+        meta = f"{wow_txt}  ·  {n_mem} members"
+        if len(meta) > 72:
+            meta = meta[:69] + "…"
+        y = _place(y, meta, f_meta, (160, 200, 190))
+        y += row_gap
+
+    H = int(y) + pad
+    img = img.crop((0, 0, W, H))
 
     buf = BytesIO()
     img.save(buf, format="PNG", optimize=True)
