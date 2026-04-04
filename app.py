@@ -932,11 +932,9 @@ def _render_cell_breakdown_section(display_df, daily_colors):
     track = "#262626"
     bar_female = "#7E3FF2"
 
-    _css_sig = f"nwst_cb|{prim}|{text}|{muted}|{track}"
-    if st.session_state.get("_nwst_cb_css_sig") != _css_sig:
-        st.session_state["_nwst_cb_css_sig"] = _css_sig
-        st.markdown(
-            f"""
+    # Fragment reruns replace this block's outputs — always emit CSS each run or flex/layout is lost.
+    st.markdown(
+        f"""
 <style>
   .nwst-cb-wrap {{
     font-family: 'Inter', sans-serif;
@@ -949,6 +947,8 @@ def _render_cell_breakdown_section(display_df, daily_colors):
     letter-spacing: 0.04em;
     margin: 1.25rem 0 0.65rem 0;
     color: {text};
+    display: block;
+    clear: both;
   }}
   .nwst-cb-row {{
     display: flex;
@@ -956,6 +956,8 @@ def _render_cell_breakdown_section(display_df, daily_colors):
     gap: 0.65rem;
     margin: 0.4rem 0;
     min-height: 1.65rem;
+    width: 100%;
+    box-sizing: border-box;
   }}
   .nwst-cb-lbl {{
     flex: 0 0 4.25rem;
@@ -991,6 +993,8 @@ def _render_cell_breakdown_section(display_df, daily_colors):
   }}
   .nwst-cb-between {{
     margin: 1.65rem 0 0.95rem 0;
+    display: block;
+    clear: both;
   }}
   .nwst-cb-between-line {{
     height: 1px;
@@ -1008,8 +1012,23 @@ def _render_cell_breakdown_section(display_df, daily_colors):
   }}
 </style>
 """,
-            unsafe_allow_html=True,
-        )
+        unsafe_allow_html=True,
+    )
+
+    # Inline backup: fragment DOM updates can leave class-only rows stacking as plain blocks.
+    _cb_row_inline = (
+        "display:flex;flex-direction:row;align-items:center;gap:0.65rem;"
+        "margin:0.4rem 0;min-height:1.65rem;width:100%;box-sizing:border-box;"
+    )
+    _cb_lbl_inline = (
+        f"flex:0 0 4.25rem;font-size:0.88rem;color:{text};white-space:nowrap;"
+    )
+    _cb_track_inline = (
+        f"flex:1 1 auto;min-width:0;height:0.55rem;border-radius:999px;background:{track};overflow:hidden;"
+    )
+    _cb_pct_inline = (
+        f"flex:0 0 3.2rem;text-align:right;font-size:0.88rem;font-weight:600;color:{text};"
+    )
 
     pick = st.radio(
         "Quick filter",
@@ -1048,12 +1067,12 @@ def _render_cell_breakdown_section(display_df, daily_colors):
                 label_e = html.escape(str(lab), quote=True)
                 w_e = html.escape(f"{pct:.1f}", quote=True)
                 parts.append(
-                    f'<div class="nwst-cb-row">'
-                    f'<span class="nwst-cb-lbl">{label_e}</span>'
-                    f'<div class="nwst-cb-track">'
+                    f'<div class="nwst-cb-row" style="{html.escape(_cb_row_inline, quote=True)}">'
+                    f'<span class="nwst-cb-lbl" style="{html.escape(_cb_lbl_inline, quote=True)}">{label_e}</span>'
+                    f'<div class="nwst-cb-track" style="{html.escape(_cb_track_inline, quote=True)}">'
                     f'<div class="nwst-cb-fill" style="width:{pct:.2f}%;background:{prim};"></div>'
                     f"</div>"
-                    f'<span class="nwst-cb-pct">{w_e}%</span>'
+                    f'<span class="nwst-cb-pct" style="{html.escape(_cb_pct_inline, quote=True)}">{w_e}%</span>'
                     f"</div>"
                 )
             parts.append("</div>")
@@ -1095,21 +1114,25 @@ def _render_cell_breakdown_section(display_df, daily_colors):
         note = f'<p class="nwst-cb-note">{unk} member(s) with other/blank gender excluded from % split.</p>'
 
     female_e = html.escape(bar_female, quote=True)
+    ri = html.escape(_cb_row_inline, quote=True)
+    li = html.escape(_cb_lbl_inline, quote=True)
+    ti = html.escape(_cb_track_inline, quote=True)
+    pi = html.escape(_cb_pct_inline, quote=True)
     parts_g = [
         '<div class="nwst-cb-wrap">',
-        f'<div class="nwst-cb-row">'
-        f'<span class="nwst-cb-lbl">Male</span>'
-        f'<div class="nwst-cb-track">'
+        f'<div class="nwst-cb-row" style="{ri}">'
+        f'<span class="nwst-cb-lbl" style="{li}">Male</span>'
+        f'<div class="nwst-cb-track" style="{ti}">'
         f'<div class="nwst-cb-fill" style="width:{pm:.2f}%;background:{prim};"></div>'
         f"</div>"
-        f'<span class="nwst-cb-pct">{html.escape(f"{pm:.1f}", quote=True)}%</span>'
+        f'<span class="nwst-cb-pct" style="{pi}">{html.escape(f"{pm:.1f}", quote=True)}%</span>'
         f"</div>",
-        f'<div class="nwst-cb-row">'
-        f'<span class="nwst-cb-lbl">Female</span>'
-        f'<div class="nwst-cb-track">'
+        f'<div class="nwst-cb-row" style="{ri}">'
+        f'<span class="nwst-cb-lbl" style="{li}">Female</span>'
+        f'<div class="nwst-cb-track" style="{ti}">'
         f'<div class="nwst-cb-fill" style="width:{pf:.2f}%;background:{female_e};"></div>'
         f"</div>"
-        f'<span class="nwst-cb-pct">{html.escape(f"{pf:.1f}", quote=True)}%</span>'
+        f'<span class="nwst-cb-pct" style="{pi}">{html.escape(f"{pf:.1f}", quote=True)}%</span>'
         f"</div>",
         "</div>",
     ]
