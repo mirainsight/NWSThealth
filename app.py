@@ -220,7 +220,7 @@ div[data-testid="stExpander"] details {{
     border: none;
 }}
 /* Only the expander title row — not <summary> inside Cell/Member table trunc widgets */
-div[data-testid="stExpander"] summary:not(.monthly-trunc-summary):not(.newcomer-trunc-summary) {{
+div[data-testid="stExpander"] summary:not(.monthly-trunc-summary) {{
     font-family: 'Inter', sans-serif !important;
     font-weight: 900 !important;
     font-size: 1.2rem !important;
@@ -234,89 +234,10 @@ div[data-testid="stExpander"] summary:not(.monthly-trunc-summary):not(.newcomer-
     border-bottom: 3px solid {c} !important;
     background: #000000 !important;
 }}
-div[data-testid="stExpander"] summary:not(.monthly-trunc-summary):not(.newcomer-trunc-summary)::-webkit-details-marker {{
+div[data-testid="stExpander"] summary:not(.monthly-trunc-summary)::-webkit-details-marker {{
     display: none !important;
 }}
 </style>"""
-
-
-def _render_cg_newcomer_section(newcomers_df, display_df, cell_filter, cell_columns, daily_colors):
-    """Content for CG Health > Newcomer collapsible."""
-    status_columns = [col for col in newcomers_df.columns if "status" in col.lower()]
-    newcomer_df = newcomers_df.copy()
-    if status_columns:
-        newcomer_df = newcomer_df[newcomer_df[status_columns[0]] == "New"]
-
-    if cell_filter != "All" and cell_columns:
-        newcomer_df = newcomer_df[newcomer_df[cell_columns[0]] == cell_filter]
-
-    if not newcomer_df.empty:
-        newcomer_count = len(newcomer_df)
-
-        if cell_filter != "All" and cell_columns:
-            total_in_cell = len(display_df[display_df[cell_columns[0]] == cell_filter])
-        else:
-            total_in_cell = len(display_df)
-
-        newcomer_pct = (newcomer_count / total_in_cell * 100) if total_in_cell > 0 else 0
-
-        kpi_col1, kpi_col2 = st.columns(2)
-
-        with kpi_col1:
-            st.markdown(
-                f"""
-            <div class="kpi-card">
-                <div class="kpi-label">Total Newcomers</div>
-                <div class="kpi-number">{newcomer_count}</div>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-
-        with kpi_col2:
-            st.markdown(
-                f"""
-            <div class="kpi-card">
-                <div class="kpi-label">Newcomers %</div>
-                <div class="kpi-number" style="color: {daily_colors['primary']};">{newcomer_pct:.0f}%</div>
-                <div class="kpi-subtitle">{newcomer_count} of {total_in_cell}</div>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-
-        available_cols = newcomer_df.columns.tolist()
-
-        default_cols = []
-        for col in available_cols:
-            col_lower = col.lower()
-            if any(x in col_lower for x in ["name", "member"]) and "last" not in col_lower:
-                default_cols.append(col)
-            elif any(x in col_lower for x in ["notes", "note"]):
-                default_cols.append(col)
-            elif "new since" in col_lower:
-                default_cols.append(col)
-
-        st.markdown("**Select columns to display:**")
-        selected_cols = st.multiselect(
-            "Columns",
-            options=available_cols,
-            default=default_cols,
-            key="newcomer_columns",
-            label_visibility="collapsed",
-        )
-
-        st.markdown("#### Newcomer List")
-
-        if selected_cols:
-            st.markdown(
-                render_newcomer_list_html_table(newcomer_df, selected_cols),
-                unsafe_allow_html=True,
-            )
-        else:
-            st.warning("Please select at least one column to display.")
-    else:
-        st.info("No newcomers found.")
 
 
 def _render_cg_leadership_section(display_df, cell_filter, cell_columns, daily_colors):
@@ -827,47 +748,136 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     st.markdown("")
 
 
-def _render_cg_detailed_members_section(display_df, daily_colors):
-    """Content for CG Health > Detailed Members collapsible."""
-    if not display_df.empty:
-        # Display total count
-        total_count = len(display_df)
-        st.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Total Members</div>
-            <div class="kpi-number">{total_count}</div>
-        </div>
-        """, unsafe_allow_html=True)
+_DESIRED_MEMBER_TABLE_COLUMNS = [
+    "Name",
+    "Cell",
+    "Age",
+    "Gender",
+    "Role",
+    "Status",
+    "Birthday",
+    "School / Work",
+    "Notes",
+]
 
-        # Allowed columns for Detailed Members (only these as options)
-        allowed_col_names = ["Name", "Cell", "Age", "Gender", "Role", "Status", "Birthday"]
-        default_col_names = ["Name", "Age", "Birthday", "Gender"]
 
-        # Map to actual column names in the dataframe (case-insensitive)
-        col_map = {c.lower().strip(): c for c in display_df.columns}
-        available_cols = [col_map[name.lower()] for name in allowed_col_names if name.lower() in col_map]
-        default_cols = [col_map[name.lower()] for name in default_col_names if name.lower() in col_map]
+def _norm_header_key(s: str) -> str:
+    t = (s or "").lower().strip()
+    t = re.sub(r"\s*/\s*", "/", t)
+    return re.sub(r"\s+", " ", t).strip()
 
-        # Column selection widget
-        st.markdown("**Select columns to display:**")
-        selected_cols = st.multiselect(
-            "Columns",
-            options=available_cols,
-            default=default_cols,
-            key="detailed_columns",
-            label_visibility="collapsed"
-        )
 
-        st.markdown("#### All Members")
+def _compact_header_key(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
-        if selected_cols:
-            # Create a display dataframe with selected columns
-            display_detailed_df = display_df[selected_cols].copy()
-            st.dataframe(display_detailed_df, use_container_width=True, hide_index=True)
-        else:
-            st.warning("Please select at least one column to display.")
-    else:
+
+def _resolve_member_table_columns(df: pd.DataFrame) -> tuple[list[str], list[str]]:
+    """Map fixed display labels to sheet columns. Returns (actual_columns, display_labels)."""
+    cols = list(df.columns)
+    by_lower = {c.lower().strip(): c for c in cols}
+    by_norm = {}
+    by_compact = {}
+    for c in cols:
+        by_norm.setdefault(_norm_header_key(c), c)
+        by_compact.setdefault(_compact_header_key(c), c)
+
+    resolved_actual = []
+    resolved_labels = []
+    used = set()
+
+    for label in _DESIRED_MEMBER_TABLE_COLUMNS:
+        actual = None
+        for cand in (
+            label.lower().strip(),
+            _norm_header_key(label),
+            _compact_header_key(label),
+        ):
+            if not cand:
+                continue
+            if cand in by_lower:
+                actual = by_lower[cand]
+                break
+            if cand in by_norm:
+                actual = by_norm[cand]
+                break
+            if cand in by_compact:
+                actual = by_compact[cand]
+                break
+
+        lid = label.lower().strip()
+        if actual is None and lid == "name":
+            for c in cols:
+                if c in used:
+                    continue
+                cl = c.lower()
+                if (("name" in cl) or ("member" in cl)) and "last" not in cl:
+                    actual = c
+                    break
+        if actual is None and lid == "cell":
+            for c in cols:
+                if c in used:
+                    continue
+                cl = c.lower()
+                if "cell" in cl or "group" in cl:
+                    actual = c
+                    break
+        if actual is None and lid in ("school / work", "school/work"):
+            for c in cols:
+                if c in used:
+                    continue
+                cl = c.lower()
+                if "school" in cl and "work" in cl:
+                    actual = c
+                    break
+        if actual is None and lid == "notes":
+            for c in cols:
+                if c in used:
+                    continue
+                if "note" in c.lower():
+                    actual = c
+                    break
+
+        if actual and actual not in used:
+            used.add(actual)
+            resolved_actual.append(actual)
+            resolved_labels.append(label)
+
+    return resolved_actual, resolved_labels
+
+
+def _render_cg_detailed_members_section(df, _daily_colors):
+    """Content for CG Health > Detailed Members collapsible (roster ``df``, respects cell filter)."""
+    if df is None or df.empty:
         st.info("No members found.")
+        return
+
+    total_count = len(df)
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-label">Total Members</div>
+        <div class="kpi-number">{total_count}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    actual_cols, display_labels = _resolve_member_table_columns(df)
+    if not actual_cols:
+        st.warning(
+            "Could not match any of the member table columns to your sheet headers. "
+            "Expected labels like Name, Cell, Age, Gender, Role, Status, Birthday, School / Work, Notes."
+        )
+        return
+
+    table_df = df[actual_cols].copy()
+    table_df.columns = display_labels
+
+    st.markdown("#### All Members")
+    st.dataframe(table_df, use_container_width=True, hide_index=True)
+
+    _miss_set = set(_DESIRED_MEMBER_TABLE_COLUMNS) - set(display_labels)
+    if _miss_set:
+        st.caption(
+            "Columns omitted (not found in sheet): " + ", ".join(sorted(_miss_set, key=str.lower))
+        )
 
 
 @st.cache_resource
@@ -2684,56 +2694,6 @@ def _monthly_td_sort_attrs(col: str, sval: str) -> str:
     return f' data-sort-t="num" data-sort-v="{int(r)}"'
 
 
-def _newcomer_trunc_expand_cell(value: str) -> str:
-    """Long text columns: ellipsis in summary; click to expand (same UX as monthly table)."""
-    full = (value or "").strip()
-    esc_full = html.escape(full)
-    if not full:
-        return '<td class="newcomer-trunc-cell"></td>'
-    inner = (
-        f'<details class="newcomer-trunc-details">'
-        f'<summary class="newcomer-trunc-summary" title="Click to show full text">{esc_full}</summary>'
-        f'<span class="newcomer-trunc-full">{esc_full}</span>'
-        f"</details>"
-    )
-    return f'<td class="newcomer-trunc-cell">{inner}</td>'
-
-
-def _newcomer_column_should_truncate(col_name: str) -> bool:
-    cl = str(col_name).lower()
-    if any(x in cl for x in ["name", "member"]) and "last" not in cl:
-        return True
-    if any(x in cl for x in ["notes", "note"]):
-        return True
-    return False
-
-
-def render_newcomer_list_html_table(df: pd.DataFrame, columns: list) -> str:
-    """HTML table for newcomer list with truncating cells like monthly attendance."""
-    if df is None or df.empty or not columns:
-        return ""
-    header_cells = "".join(f"<th>{html.escape(str(c))}</th>" for c in columns)
-    body_rows = []
-    view = df[columns].copy()
-    for _, row in view.iterrows():
-        cells = []
-        for col in columns:
-            raw = row[col]
-            sval = "" if pd.isna(raw) else str(raw).strip()
-            if _newcomer_column_should_truncate(col):
-                cells.append(_newcomer_trunc_expand_cell(sval))
-            else:
-                cells.append(f"<td>{html.escape(sval)}</td>")
-        body_rows.append("<tr>" + "".join(cells) + "</tr>")
-    return (
-        '<div class="newcomer-list-table-wrap">'
-        '<table class="newcomer-list-table">'
-        f"<thead><tr>{header_cells}</tr></thead>"
-        f"<tbody>{''.join(body_rows)}</tbody>"
-        "</table></div>"
-    )
-
-
 def render_monthly_status_html_table(df):
     """Render monthly status matrix as HTML with bold status labels (tile-matching colors)."""
     if df is None or df.empty:
@@ -4254,73 +4214,6 @@ st.markdown(f"""
         font-weight: 700;
     }}
 
-    /* Newcomer list — same expand/ellipsis pattern as monthly Cell/Member columns */
-    .newcomer-list-table-wrap {{
-        overflow-x: auto;
-        margin: 0.35rem 0 1.25rem 0;
-        width: 100%;
-    }}
-    .newcomer-list-table {{
-        width: 100%;
-        border-collapse: collapse;
-        font-family: 'Inter', sans-serif;
-        font-size: 0.9rem;
-    }}
-    .newcomer-list-table th {{
-        text-align: left;
-        padding: 0.65rem 0.75rem;
-        border-bottom: 2px solid rgba(255, 255, 255, 0.12);
-        color: #999;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-size: 0.72rem;
-        white-space: nowrap;
-    }}
-    .newcomer-list-table td {{
-        padding: 0.55rem 0.75rem;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        color: #e8e8e8;
-        vertical-align: top;
-    }}
-    .newcomer-list-table td.newcomer-trunc-cell {{
-        max-width: 10rem;
-        width: 1%;
-        overflow: hidden;
-    }}
-    .newcomer-list-table .newcomer-trunc-details {{
-        max-width: 100%;
-    }}
-    .newcomer-list-table .newcomer-trunc-summary {{
-        cursor: pointer;
-        list-style: none;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        max-width: 100%;
-        color: #e0e0e0;
-        font-weight: 400;
-        font-size: inherit;
-        text-transform: none;
-        border-bottom: none;
-        letter-spacing: normal;
-    }}
-    .newcomer-list-table .newcomer-trunc-summary::-webkit-details-marker {{
-        display: none;
-    }}
-    .newcomer-list-table .newcomer-trunc-full {{
-        display: block;
-        margin-top: 0.35rem;
-        padding-top: 0.35rem;
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
-        color: #e0e0e0;
-        font-weight: 400;
-        white-space: normal;
-        word-break: break-word;
-        line-height: 1.3;
-        text-transform: none;
-    }}
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -4744,15 +4637,11 @@ if current_page == "cg":
                     )
 
 
-            with st.expander("👥 NEWCOMER", expanded=False):
-                _render_cg_newcomer_section(newcomers_df, display_df, cell_filter, cell_columns, daily_colors)
+            with st.expander("📋 DETAILED MEMBERS", expanded=False):
+                _render_cg_detailed_members_section(display_df, daily_colors)
 
             with st.expander("👔 LEADERSHIP", expanded=False):
                 _render_cg_leadership_section(display_df, cell_filter, cell_columns, daily_colors)
-
-            # DETAILED MEMBERS SECTION
-            with st.expander("📋 DETAILED MEMBERS", expanded=False):
-                _render_cg_detailed_members_section(display_df, daily_colors)
 
         else:
             st.warning("No data found. Click 'Sync from Google Sheets' to load data.")
