@@ -3656,92 +3656,70 @@ def _render_nwst_analytics_individual_attendance(colors, cell_to_zone_map):
     monthly_status_df = monthly_status_df.copy()
     monthly_status_df["_zone"] = monthly_status_df["Cell"].apply(_zone_for_cell)
 
+    # Render the fragment for interactive filtering
+    _nwst_individual_attendance_fragment(monthly_status_df, colors)
+
+
+@st.fragment
+def _nwst_individual_attendance_fragment(monthly_status_df: pd.DataFrame, colors: dict):
+    """Fragment for Individual Attendance section - only this block reruns when filter changes."""
     p = html.escape(str(colors.get("primary", "#00ff00")), quote=True)
     bg = html.escape(str(colors.get("background", "#000000")), quote=True)
     st.markdown(
         f"""
         <style>
-            [data-testid="stMultiSelect"] {{
+            [data-testid="stTextInput"] {{
                 font-family: 'Inter', sans-serif !important;
             }}
-            [data-testid="stMultiSelect"] > div {{
+            [data-testid="stTextInput"] > div {{
                 border: 2px solid {p} !important;
                 border-radius: 0px !important;
                 background: {bg} !important;
             }}
-            [data-testid="stMultiSelect"] span {{
+            [data-testid="stTextInput"] input {{
                 font-family: 'Inter', sans-serif !important;
                 color: #ffffff !important;
-            }}
-            [data-testid="stMultiSelect"] svg {{
-                fill: {p} !important;
-            }}
-            [data-testid="stMultiSelect"] [data-baseweb="tag"] {{
-                background: {p} !important;
-                border-radius: 0px !important;
-            }}
-            [data-testid="stMultiSelect"] [data-baseweb="tag"] span {{
-                color: {bg} !important;
-                font-weight: 600 !important;
             }}
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    if "analytics_ia_clear_filter_counter" not in st.session_state:
-        st.session_state.analytics_ia_clear_filter_counter = 0
-    _ia_fc = st.session_state.analytics_ia_clear_filter_counter
-
-    _all_names = sorted(
-        monthly_status_df["Member"].dropna().astype(str).str.strip().unique().tolist(),
-        key=str.lower,
-    )
-    _all_names = [n for n in _all_names if n]
+    if "analytics_ia_name_filter" not in st.session_state:
+        st.session_state.analytics_ia_name_filter = ""
 
     _ncol1, _ncol2 = st.columns([3, 1])
     with _ncol1:
-        _sel_names = st.multiselect(
+        _name_filter = st.text_input(
             "Search by Name...",
-            options=_all_names,
-            default=[],
-            key=f"analytics_ia_name_multiselect_{_ia_fc}",
-            placeholder="Search and select names...",
+            value=st.session_state.analytics_ia_name_filter,
+            key="analytics_ia_name_input",
+            placeholder="Type to filter by name...",
             label_visibility="collapsed",
         )
+        st.session_state.analytics_ia_name_filter = _name_filter
     with _ncol2:
         if st.button(
-            "Clear All",
+            "Clear",
             type="secondary",
             use_container_width=True,
             key="analytics_ia_clear_filters",
         ):
-            st.session_state.analytics_ia_clear_filter_counter += 1
-            st.rerun()
+            st.session_state.analytics_ia_name_filter = ""
+            st.rerun(scope="fragment")
 
     _filtered = monthly_status_df.copy()
-    if _sel_names:
-        _mem_f = _filtered["Member"].dropna().astype(str).str.strip()
-        _filtered = _filtered[_mem_f.isin(_sel_names)]
-
-    _parts = []
-    if _sel_names:
-        _parts.append(f"{len(_sel_names)} name(s)")
-    _ftext = f" from {' and '.join(_parts)}" if _parts else ""
-    tm = html.escape(str(colors.get("text_muted", "#999999")), quote=True)
-
-    st.markdown(
-        f"<p style='color: {tm}; font-family: Inter, sans-serif; font-size: 0.9rem; margin: 1rem 0 0.5rem 0;'>"
-        f"Showing <b style=\"color: {p}\">{len(_filtered)}</b> members{_ftext}</p>",
-        unsafe_allow_html=True,
-    )
+    if _name_filter.strip():
+        _filter_lower = _name_filter.strip().lower()
+        _mem_f = _filtered["Member"].fillna("").astype(str).str.strip().str.lower()
+        _filtered = _filtered[_mem_f.str.contains(_filter_lower, regex=False)]
 
     if _filtered.empty:
-        st.info("No members match the current filters.")
+        st.info("No members match the current filter.")
         return
 
     _mwf = _filtered.copy()
-    if _sel_names:
+    if _name_filter.strip():
         _show = _mwf.drop(columns=["_zone"], errors="ignore")
         display_monthly_status_interactive(_show)
     else:
