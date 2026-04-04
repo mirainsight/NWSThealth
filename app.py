@@ -4240,7 +4240,7 @@ if current_page == "cg":
                             st.warning(f"⚠️ Could not sync Attendance data: {e}")
 
                         if redis:
-                            st.success("✅ Data synced successfully! Cached for 5 minutes.")
+                            st.success("✅ Attendance updated successfully!")
 
                             # Store last sync time in Malaysian time
                             myt = timezone(timedelta(hours=8))
