@@ -307,208 +307,35 @@ def _render_cg_leadership_section(display_df, cell_filter, cell_columns, daily_c
         st.info("No leadership data available.")
 
 
-def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", attendance_stats=None):
-    """Cell health — KPI column layout + Historical Cell Status WoW pills + expandable name tiles."""
-    if attendance_stats is None:
-        attendance_stats = {}
+@st.fragment
+def _nwst_cell_health_fragment(ch_ctx: dict):
+    """Only this block reruns when Cell health category buttons toggle name lists."""
+    _nwst_cell_health_render_interactive(ch_ctx)
 
-    prim_hex = str(daily_colors.get("primary", "#00ff00"))
-    prim = html.escape(prim_hex, quote=True)
 
-    if display_df.empty:
-        st.info("No cell health data available.")
-        return
-
-    work_df = display_df.copy()
-    status_columns = [col for col in work_df.columns if "status" in col.lower()]
-    status_col = status_columns[0] if status_columns else None
-
-    if status_col:
-        work_df["status_type"] = work_df[status_col].apply(extract_cell_sheet_status_type)
-        new_count = len(work_df[work_df["status_type"] == "New"])
-        regular_count = len(work_df[work_df["status_type"] == "Regular"])
-        irregular_count = len(work_df[work_df["status_type"] == "Irregular"])
-        follow_up_count = len(work_df[work_df["status_type"] == "Follow Up"])
-        red_count = len(work_df[work_df["status_type"] == "Red"])
-        graduated_count = len(work_df[work_df["status_type"] == "Graduated"])
-    else:
-        total_members_fb = len(work_df)
-        new_count = max(1, int(total_members_fb * 0.20))
-        regular_count = max(1, int(total_members_fb * 0.40))
-        irregular_count = max(1, int(total_members_fb * 0.20))
-        follow_up_count = max(1, int(total_members_fb * 0.10))
-        red_count = max(1, int(total_members_fb * 0.05))
-        graduated_count = (
-            total_members_fb - new_count - regular_count - irregular_count - follow_up_count - red_count
-        )
-
-    total_members = new_count + regular_count + irregular_count + follow_up_count + red_count + graduated_count
-
-    _cell_scoped = (
-        cell_filter is not None
-        and str(cell_filter).strip()
-        and str(cell_filter).strip().lower() != "all"
-    )
-    if _cell_scoped:
-        mix_denom = new_count + regular_count + irregular_count + follow_up_count
-        if mix_denom > 0:
-            new_pct = new_count / mix_denom * 100
-            regular_pct = regular_count / mix_denom * 100
-            irregular_pct = irregular_count / mix_denom * 100
-            follow_up_pct = follow_up_count / mix_denom * 100
-        else:
-            new_pct = regular_pct = irregular_pct = follow_up_pct = 0.0
-        red_pct = 0.0
-        graduated_pct = 0.0
-    else:
-        new_pct = (new_count / total_members * 100) if total_members > 0 else 0
-        regular_pct = (regular_count / total_members * 100) if total_members > 0 else 0
-        irregular_pct = (irregular_count / total_members * 100) if total_members > 0 else 0
-        follow_up_pct = (follow_up_count / total_members * 100) if total_members > 0 else 0
-        red_pct = (red_count / total_members * 100) if total_members > 0 else 0
-        graduated_pct = (graduated_count / total_members * 100) if total_members > 0 else 0
-
-    hist_df = load_historical_cell_status_dataframe()
-    curr_agg, prev_agg = None, None
-    if hist_df is not None and not hist_df.empty:
-        curr_agg, prev_agg, _, _ = _nwst_hist_cell_wow_for_scope(hist_df, cell_filter)
-
-    wow_new = _nwst_cell_health_wow_pill_html("new", curr_agg, prev_agg)
-    wow_regular = _nwst_cell_health_wow_pill_html("regular", curr_agg, prev_agg)
-    wow_irregular = _nwst_cell_health_wow_pill_html("irregular", curr_agg, prev_agg)
-    wow_follow_up = _nwst_cell_health_wow_pill_html("follow_up", curr_agg, prev_agg)
-    wow_red = _nwst_cell_health_wow_pill_html("red", curr_agg, prev_agg)
-    wow_graduated = _nwst_cell_health_wow_pill_html("graduated", curr_agg, prev_agg)
-
-    st.markdown(
-        f"""
-<style>
-  .ch-head-nwst {{
-    font-family: 'Inter', sans-serif;
-    font-weight: 700;
-    font-size: 0.82rem;
-    color: {prim};
-    text-transform: uppercase;
-    letter-spacing: 0.16em;
-    margin: 0 0 1.35rem 0;
-    display: block;
-  }}
-  /* Streamlit often draws a grey frame around markdown HTML — strip it for cell-health KPI cards */
-  [data-testid="stMarkdownContainer"]:has(.ch-kpi-card-embed),
-  [data-testid="stMarkdownContainer"]:has(.ch-kpi-card-embed) > div,
-  [data-testid="element-container"]:has(.ch-kpi-card-embed) {{
-    border: none !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    outline: none !important;
-  }}
-  .ch-kpi-wow-row {{
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    gap: 0.45rem 0.85rem;
-    margin: 0.35rem 0 0.2rem 0;
-  }}
-  .ch-kpi-wow-row .kpi-number {{
-    margin: 0 !important;
-    line-height: 1;
-    flex: 0 1 auto;
-  }}
-  .ch-kpi-wow-row .ch-pill-wrap {{
-    display: inline-flex !important;
-    width: fit-content !important;
-    max-width: 100%;
-    margin: 0 !important;
-    padding: 0 !important;
-    flex: 0 0 auto;
-    min-width: 0;
-    align-self: center;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-  }}
-  .ch-pill.ch-pill--hero {{
-    font-size: clamp(0.88rem, 1.55vw, 1.12rem);
-    padding: 0.3rem 0.78rem 0.32rem;
-    gap: 0.34rem;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    border: none;
-    outline: none;
-  }}
-  /* Hero WoW: glow only — no 1px ring (reads as a second “frame”) */
-  .ch-pill.ch-pill--hero.ch-pill-good {{
-    box-shadow: 0 0 28px rgba(94, 234, 212, 0.38);
-    text-shadow: 0 0 12px rgba(94, 234, 212, 0.45);
-  }}
-  .ch-pill.ch-pill--hero.ch-pill-bad {{
-    box-shadow: 0 0 24px rgba(253, 164, 175, 0.28);
-    text-shadow: 0 0 10px rgba(253, 164, 175, 0.35);
-  }}
-  .ch-pill.ch-pill--hero.ch-pill-flat {{
-    box-shadow: none;
-    background: rgba(42, 42, 42, 0.95);
-  }}
-  .ch-pill.ch-pill--hero.ch-pill-na {{
-    box-shadow: none;
-    background: #2a2a2a;
-  }}
-  .ch-pill--hero .ch-pill-arrow {{
-    font-size: 0.95em;
-  }}
-  .ch-pill-wrap {{ margin-top: 0.35rem; line-height: 1; max-width: 100%; }}
-  .ch-pill {{
-    display: inline-flex;
-    align-items: center;
-    gap: 0.2rem;
-    padding: 0.14rem 0.42rem 0.15rem;
-    border-radius: 9999px;
-    font-family: 'Inter', sans-serif;
-    font-size: 0.52rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }}
-  .ch-pill-good {{
-    background: #153729;
-    color: #5eead4;
-    box-shadow: 0 0 14px rgba(94, 234, 212, 0.22);
-    text-shadow: 0 0 10px rgba(94, 234, 212, 0.35);
-  }}
-  .ch-pill-bad {{
-    background: #351a22;
-    color: #fda4af;
-    box-shadow: 0 0 12px rgba(253, 164, 175, 0.18);
-    text-shadow: 0 0 8px rgba(253, 164, 175, 0.3);
-  }}
-  .ch-pill-flat {{
-    background: #2a2a2a;
-    color: #c6c6c6;
-    font-weight: 500;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
-  }}
-  .ch-pill-na {{
-    background: #252525;
-    color: #888;
-    font-weight: 400;
-    white-space: normal;
-  }}
-  .ch-pill-arrow {{
-    font-size: 0.68em;
-    font-weight: 700;
-    line-height: 1;
-    opacity: 0.95;
-  }}
-</style>
-<p class="ch-head-nwst">Cell health</p>
-""",
-        unsafe_allow_html=True,
-    )
+def _nwst_cell_health_render_interactive(ch_ctx: dict):
+    work_df = ch_ctx["work_df"]
+    status_col = ch_ctx["status_col"]
+    attendance_stats = ch_ctx["attendance_stats"]
+    _cell_scoped = ch_ctx["_cell_scoped"]
+    new_count = ch_ctx["new_count"]
+    new_pct = ch_ctx["new_pct"]
+    regular_count = ch_ctx["regular_count"]
+    regular_pct = ch_ctx["regular_pct"]
+    irregular_count = ch_ctx["irregular_count"]
+    irregular_pct = ch_ctx["irregular_pct"]
+    follow_up_count = ch_ctx["follow_up_count"]
+    follow_up_pct = ch_ctx["follow_up_pct"]
+    red_count = ch_ctx["red_count"]
+    red_pct = ch_ctx["red_pct"]
+    graduated_count = ch_ctx["graduated_count"]
+    graduated_pct = ch_ctx["graduated_pct"]
+    wow_new = ch_ctx["wow_new"]
+    wow_regular = ch_ctx["wow_regular"]
+    wow_irregular = ch_ctx["wow_irregular"]
+    wow_follow_up = ch_ctx["wow_follow_up"]
+    wow_red = ch_ctx["wow_red"]
+    wow_graduated = ch_ctx["wow_graduated"]
 
     def _member_tiles(data_df, border_color):
         if data_df.empty:
@@ -746,6 +573,236 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
                 _member_tiles(graduated_data, "#9b59b6")
 
     st.markdown("")
+
+
+def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", attendance_stats=None):
+    """Cell health — KPI column layout + Historical Cell Status WoW pills + expandable name tiles."""
+    if attendance_stats is None:
+        attendance_stats = {}
+
+    prim_hex = str(daily_colors.get("primary", "#00ff00"))
+    prim = html.escape(prim_hex, quote=True)
+
+    if display_df.empty:
+        st.info("No cell health data available.")
+        return
+
+    work_df = display_df.copy()
+    status_columns = [col for col in work_df.columns if "status" in col.lower()]
+    status_col = status_columns[0] if status_columns else None
+
+    if status_col:
+        work_df["status_type"] = work_df[status_col].apply(extract_cell_sheet_status_type)
+        new_count = len(work_df[work_df["status_type"] == "New"])
+        regular_count = len(work_df[work_df["status_type"] == "Regular"])
+        irregular_count = len(work_df[work_df["status_type"] == "Irregular"])
+        follow_up_count = len(work_df[work_df["status_type"] == "Follow Up"])
+        red_count = len(work_df[work_df["status_type"] == "Red"])
+        graduated_count = len(work_df[work_df["status_type"] == "Graduated"])
+    else:
+        total_members_fb = len(work_df)
+        new_count = max(1, int(total_members_fb * 0.20))
+        regular_count = max(1, int(total_members_fb * 0.40))
+        irregular_count = max(1, int(total_members_fb * 0.20))
+        follow_up_count = max(1, int(total_members_fb * 0.10))
+        red_count = max(1, int(total_members_fb * 0.05))
+        graduated_count = (
+            total_members_fb - new_count - regular_count - irregular_count - follow_up_count - red_count
+        )
+
+    total_members = new_count + regular_count + irregular_count + follow_up_count + red_count + graduated_count
+
+    _cell_scoped = (
+        cell_filter is not None
+        and str(cell_filter).strip()
+        and str(cell_filter).strip().lower() != "all"
+    )
+    if _cell_scoped:
+        mix_denom = new_count + regular_count + irregular_count + follow_up_count
+        if mix_denom > 0:
+            new_pct = new_count / mix_denom * 100
+            regular_pct = regular_count / mix_denom * 100
+            irregular_pct = irregular_count / mix_denom * 100
+            follow_up_pct = follow_up_count / mix_denom * 100
+        else:
+            new_pct = regular_pct = irregular_pct = follow_up_pct = 0.0
+        red_pct = 0.0
+        graduated_pct = 0.0
+    else:
+        new_pct = (new_count / total_members * 100) if total_members > 0 else 0
+        regular_pct = (regular_count / total_members * 100) if total_members > 0 else 0
+        irregular_pct = (irregular_count / total_members * 100) if total_members > 0 else 0
+        follow_up_pct = (follow_up_count / total_members * 100) if total_members > 0 else 0
+        red_pct = (red_count / total_members * 100) if total_members > 0 else 0
+        graduated_pct = (graduated_count / total_members * 100) if total_members > 0 else 0
+
+    hist_df = load_historical_cell_status_dataframe()
+    curr_agg, prev_agg = None, None
+    if hist_df is not None and not hist_df.empty:
+        curr_agg, prev_agg, _, _ = _nwst_hist_cell_wow_for_scope(hist_df, cell_filter)
+
+    wow_new = _nwst_cell_health_wow_pill_html("new", curr_agg, prev_agg)
+    wow_regular = _nwst_cell_health_wow_pill_html("regular", curr_agg, prev_agg)
+    wow_irregular = _nwst_cell_health_wow_pill_html("irregular", curr_agg, prev_agg)
+    wow_follow_up = _nwst_cell_health_wow_pill_html("follow_up", curr_agg, prev_agg)
+    wow_red = _nwst_cell_health_wow_pill_html("red", curr_agg, prev_agg)
+    wow_graduated = _nwst_cell_health_wow_pill_html("graduated", curr_agg, prev_agg)
+
+    st.markdown(
+        f"""
+<style>
+  .ch-head-nwst {{
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 0.82rem;
+    color: {prim};
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    margin: 0 0 1.35rem 0;
+    display: block;
+  }}
+  /* Streamlit often draws a grey frame around markdown HTML — strip it for cell-health KPI cards */
+  [data-testid="stMarkdownContainer"]:has(.ch-kpi-card-embed),
+  [data-testid="stMarkdownContainer"]:has(.ch-kpi-card-embed) > div,
+  [data-testid="element-container"]:has(.ch-kpi-card-embed) {{
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
+  }}
+  .ch-kpi-wow-row {{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.85rem;
+    margin: 0.35rem 0 0.2rem 0;
+  }}
+  .ch-kpi-wow-row .kpi-number {{
+    margin: 0 !important;
+    line-height: 1;
+    flex: 0 1 auto;
+  }}
+  .ch-kpi-wow-row .ch-pill-wrap {{
+    display: inline-flex !important;
+    width: fit-content !important;
+    max-width: 100%;
+    margin: 0 !important;
+    padding: 0 !important;
+    flex: 0 0 auto;
+    min-width: 0;
+    align-self: center;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+  }}
+  .ch-pill.ch-pill--hero {{
+    font-size: clamp(0.88rem, 1.55vw, 1.12rem);
+    padding: 0.3rem 0.78rem 0.32rem;
+    gap: 0.34rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    border: none;
+    outline: none;
+  }}
+  /* Hero WoW: glow only — no 1px ring (reads as a second “frame”) */
+  .ch-pill.ch-pill--hero.ch-pill-good {{
+    box-shadow: 0 0 28px rgba(94, 234, 212, 0.38);
+    text-shadow: 0 0 12px rgba(94, 234, 212, 0.45);
+  }}
+  .ch-pill.ch-pill--hero.ch-pill-bad {{
+    box-shadow: 0 0 24px rgba(253, 164, 175, 0.28);
+    text-shadow: 0 0 10px rgba(253, 164, 175, 0.35);
+  }}
+  .ch-pill.ch-pill--hero.ch-pill-flat {{
+    box-shadow: none;
+    background: rgba(42, 42, 42, 0.95);
+  }}
+  .ch-pill.ch-pill--hero.ch-pill-na {{
+    box-shadow: none;
+    background: #2a2a2a;
+  }}
+  .ch-pill--hero .ch-pill-arrow {{
+    font-size: 0.95em;
+  }}
+  .ch-pill-wrap {{ margin-top: 0.35rem; line-height: 1; max-width: 100%; }}
+  .ch-pill {{
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.14rem 0.42rem 0.15rem;
+    border-radius: 9999px;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.52rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }}
+  .ch-pill-good {{
+    background: #153729;
+    color: #5eead4;
+    box-shadow: 0 0 14px rgba(94, 234, 212, 0.22);
+    text-shadow: 0 0 10px rgba(94, 234, 212, 0.35);
+  }}
+  .ch-pill-bad {{
+    background: #351a22;
+    color: #fda4af;
+    box-shadow: 0 0 12px rgba(253, 164, 175, 0.18);
+    text-shadow: 0 0 8px rgba(253, 164, 175, 0.3);
+  }}
+  .ch-pill-flat {{
+    background: #2a2a2a;
+    color: #c6c6c6;
+    font-weight: 500;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+  }}
+  .ch-pill-na {{
+    background: #252525;
+    color: #888;
+    font-weight: 400;
+    white-space: normal;
+  }}
+  .ch-pill-arrow {{
+    font-size: 0.68em;
+    font-weight: 700;
+    line-height: 1;
+    opacity: 0.95;
+  }}
+</style>
+<p class="ch-head-nwst">Cell health</p>
+""",
+        unsafe_allow_html=True,
+    )
+
+    ch_ctx = {
+        "work_df": work_df,
+        "status_col": status_col,
+        "_cell_scoped": _cell_scoped,
+        "attendance_stats": attendance_stats,
+        "new_count": new_count,
+        "new_pct": new_pct,
+        "regular_count": regular_count,
+        "regular_pct": regular_pct,
+        "irregular_count": irregular_count,
+        "irregular_pct": irregular_pct,
+        "follow_up_count": follow_up_count,
+        "follow_up_pct": follow_up_pct,
+        "red_count": red_count,
+        "red_pct": red_pct,
+        "graduated_count": graduated_count,
+        "graduated_pct": graduated_pct,
+        "wow_new": wow_new,
+        "wow_regular": wow_regular,
+        "wow_irregular": wow_irregular,
+        "wow_follow_up": wow_follow_up,
+        "wow_red": wow_red,
+        "wow_graduated": wow_graduated,
+    }
+    _nwst_cell_health_fragment(ch_ctx)
 
 
 def _nwst_normalize_gender_value(val):
