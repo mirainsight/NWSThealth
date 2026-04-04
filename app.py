@@ -342,34 +342,12 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
   .ch-head-nwst {{
     font-family: 'Inter', sans-serif;
     font-weight: 700;
-    font-size: 1.05rem;
+    font-size: 0.82rem;
     color: {prim};
     text-transform: uppercase;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.16em;
     margin: 0 0 1.35rem 0;
     display: block;
-  }}
-  /* Cell Health KPI cards: copper frame, larger type, neon-style % glow (matches dashboard reference) */
-  .kpi-card.ch-kpi-card-embed {{
-    border: 2px solid #d4a574 !important;
-    border-left: 2px solid #d4a574 !important;
-    background: #121212 !important;
-    box-shadow: 0 0 24px rgba(212, 165, 116, 0.14) !important;
-    min-height: 210px !important;
-    padding: 1.35rem 1.55rem !important;
-    margin-bottom: 1rem !important;
-  }}
-  .kpi-card.ch-kpi-card-embed .kpi-label {{
-    font-size: 1.02rem !important;
-    letter-spacing: 0.1em !important;
-    color: #f4f4f4 !important;
-    font-weight: 800 !important;
-  }}
-  .kpi-card.ch-kpi-card-embed .kpi-subtitle {{
-    font-size: 1.02rem !important;
-    color: #ececec !important;
-    font-weight: 600 !important;
-    margin-top: 0.85rem !important;
   }}
   /* Streamlit often draws a grey frame around markdown HTML — strip it for cell-health KPI cards */
   [data-testid="stMarkdownContainer"]:has(.ch-kpi-card-embed),
@@ -393,12 +371,6 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     margin: 0 !important;
     line-height: 1;
     flex: 0 1 auto;
-    font-size: clamp(3.35rem, 4.6vw, 5.35rem) !important;
-    font-weight: 900 !important;
-    text-shadow:
-      0 0 22px currentColor,
-      0 0 52px currentColor,
-      0 0 2px rgba(255, 255, 255, 0.12);
   }}
   .ch-kpi-wow-row .ch-pill-wrap {{
     display: inline-flex !important;
@@ -414,8 +386,8 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     box-shadow: none !important;
   }}
   .ch-pill.ch-pill--hero {{
-    font-size: clamp(1rem, 1.75vw, 1.3rem);
-    padding: 0.32rem 0.82rem 0.34rem;
+    font-size: clamp(0.88rem, 1.55vw, 1.12rem);
+    padding: 0.3rem 0.78rem 0.32rem;
     gap: 0.34rem;
     font-weight: 700;
     letter-spacing: 0.03em;
@@ -574,46 +546,46 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
         if st.button("🔵 New", key="btn_new", use_container_width=True):
             st.session_state.expand_new = not st.session_state.expand_new
         st.markdown(
-            _cell_health_mix_card_html("#38B8FF", "New Members", new_pct, new_count, wow_new),
+            _cell_health_mix_card_html("#3498db", "New Members", new_pct, new_count, wow_new),
             unsafe_allow_html=True,
         )
         if st.session_state.expand_new:
             st.markdown(
-                "<p style='color: #38B8FF; font-weight: 600;'>New Members</p>",
+                "<p style='color: #3498db; font-weight: 600;'>New Members</p>",
                 unsafe_allow_html=True,
             )
             if status_col:
                 new_data = work_df[work_df["status_type"] == "New"].copy()
             else:
                 new_data = work_df.head(new_count).copy()
-            _member_tiles(new_data, "#38B8FF")
+            _member_tiles(new_data, "#3498db")
 
     with col2:
         if st.button("🟢 Regular", key="btn_regular", use_container_width=True):
             st.session_state.expand_regular = not st.session_state.expand_regular
         st.markdown(
             _cell_health_mix_card_html(
-                "#00FF9A", "Regular Members", regular_pct, regular_count, wow_regular
+                "#2ecc71", "Regular Members", regular_pct, regular_count, wow_regular
             ),
             unsafe_allow_html=True,
         )
         if st.session_state.expand_regular:
             st.markdown(
-                "<p style='color: #00FF9A; font-weight: 600;'>Regular Members (75% and above attendance)</p>",
+                "<p style='color: #2ecc71; font-weight: 600;'>Regular Members (75% and above attendance)</p>",
                 unsafe_allow_html=True,
             )
             if status_col:
                 regular_data = work_df[work_df["status_type"] == "Regular"].copy()
             else:
                 regular_data = work_df.iloc[new_count : new_count + regular_count].copy()
-            _member_tiles(regular_data, "#00FF9A")
+            _member_tiles(regular_data, "#2ecc71")
 
     with col3:
         if st.button("🟠 Irregular", key="btn_irregular", use_container_width=True):
             st.session_state.expand_irregular = not st.session_state.expand_irregular
         st.markdown(
             _cell_health_mix_card_html(
-                "#FF9A3C",
+                "#e67e22",
                 "Irregular Members",
                 irregular_pct,
                 irregular_count,
@@ -623,7 +595,7 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
         )
         if st.session_state.expand_irregular:
             st.markdown(
-                "<p style='color: #FF9A3C; font-weight: 600;'>Irregular Members (Below 75% attendance)</p>",
+                "<p style='color: #e67e22; font-weight: 600;'>Irregular Members (Below 75% attendance)</p>",
                 unsafe_allow_html=True,
             )
             if status_col:
@@ -632,7 +604,7 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
                 irregular_data = work_df.iloc[
                     new_count + regular_count : new_count + regular_count + irregular_count
                 ].copy()
-            _member_tiles(irregular_data, "#FF9A3C")
+            _member_tiles(irregular_data, "#e67e22")
 
     if _cell_scoped:
         with col4:
@@ -640,13 +612,13 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
                 st.session_state.expand_follow_up = not st.session_state.expand_follow_up
             st.markdown(
                 _cell_health_mix_card_html(
-                    "#FFDD55", "Follow Up", follow_up_pct, follow_up_count, wow_follow_up
+                    "#f39c12", "Follow Up", follow_up_pct, follow_up_count, wow_follow_up
                 ),
                 unsafe_allow_html=True,
             )
             if st.session_state.expand_follow_up:
                 st.markdown(
-                    "<p style='color: #FFDD55; font-weight: 600;'>Follow Up (0% attendance - past 2 months)</p>",
+                    "<p style='color: #f39c12; font-weight: 600;'>Follow Up (0% attendance - past 2 months)</p>",
                     unsafe_allow_html=True,
                 )
                 if status_col:
@@ -660,7 +632,7 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
                         + irregular_count
                         + follow_up_count
                     ].copy()
-                _member_tiles(follow_up_data, "#FFDD55")
+                _member_tiles(follow_up_data, "#f39c12")
     else:
         st.markdown("")
         col1, col2, col3 = st.columns(3)
@@ -670,13 +642,13 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
                 st.session_state.expand_follow_up = not st.session_state.expand_follow_up
             st.markdown(
                 _cell_health_mix_card_html(
-                    "#FFDD55", "Follow Up", follow_up_pct, follow_up_count, wow_follow_up
+                    "#f39c12", "Follow Up", follow_up_pct, follow_up_count, wow_follow_up
                 ),
                 unsafe_allow_html=True,
             )
             if st.session_state.expand_follow_up:
                 st.markdown(
-                    "<p style='color: #FFDD55; font-weight: 600;'>Follow Up (0% attendance - past 2 months)</p>",
+                    "<p style='color: #f39c12; font-weight: 600;'>Follow Up (0% attendance - past 2 months)</p>",
                     unsafe_allow_html=True,
                 )
                 if status_col:
@@ -690,18 +662,18 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
                         + irregular_count
                         + follow_up_count
                     ].copy()
-                _member_tiles(follow_up_data, "#FFDD55")
+                _member_tiles(follow_up_data, "#f39c12")
 
         with col2:
             if st.button("🔴 Red", key="btn_red", use_container_width=True):
                 st.session_state.expand_red = not st.session_state.expand_red
             st.markdown(
-                _cell_health_mix_card_html("#FF4D5E", "Red", red_pct, red_count, wow_red),
+                _cell_health_mix_card_html("#e74c3c", "Red", red_pct, red_count, wow_red),
                 unsafe_allow_html=True,
             )
             if st.session_state.expand_red:
                 st.markdown(
-                    "<p style='color: #FF4D5E; font-weight: 600;'>Red (Won't come to church anymore)</p>",
+                    "<p style='color: #e74c3c; font-weight: 600;'>Red (Won't come to church anymore)</p>",
                     unsafe_allow_html=True,
                 )
                 if status_col:
@@ -717,20 +689,20 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
                         + follow_up_count
                         + red_count
                     ].copy()
-                _member_tiles(red_data, "#FF4D5E")
+                _member_tiles(red_data, "#e74c3c")
 
         with col3:
             if st.button("⭐ Graduated", key="btn_graduated", use_container_width=True):
                 st.session_state.expand_graduated = not st.session_state.expand_graduated
             st.markdown(
                 _cell_health_mix_card_html(
-                    "#D278FF", "Graduated", graduated_pct, graduated_count, wow_graduated
+                    "#9b59b6", "Graduated", graduated_pct, graduated_count, wow_graduated
                 ),
                 unsafe_allow_html=True,
             )
             if st.session_state.expand_graduated:
                 st.markdown(
-                    "<p style='color: #D278FF; font-weight: 600;'>Graduated (Moved to leadership roles)</p>",
+                    "<p style='color: #9b59b6; font-weight: 600;'>Graduated (Moved to leadership roles)</p>",
                     unsafe_allow_html=True,
                 )
                 if status_col:
@@ -743,7 +715,7 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
                         + follow_up_count
                         + red_count :
                     ].copy()
-                _member_tiles(graduated_data, "#D278FF")
+                _member_tiles(graduated_data, "#9b59b6")
 
     st.markdown("")
 
@@ -1119,12 +1091,12 @@ def _nwst_cell_health_wow_color_for_delta(bucket_key, delta_n):
     if bucket_key == "graduated":
         return "#aaaaaa"
     if bucket_key == "new":
-        return "#00FF9A" if delta_n != 0 else "#aaaaaa"
+        return "#2ecc71" if delta_n != 0 else "#aaaaaa"
     if delta_n == 0:
         return "#aaaaaa"
     if bucket_key == "regular":
-        return "#00FF9A" if delta_n > 0 else "#FF4D5E"
-    return "#00FF9A" if delta_n < 0 else "#FF4D5E"
+        return "#2ecc71" if delta_n > 0 else "#e74c3c"
+    return "#2ecc71" if delta_n < 0 else "#e74c3c"
 
 
 def _nwst_cell_health_wow_pill_html(bucket_key, curr_agg, prev_agg):
@@ -1167,18 +1139,18 @@ def _nwst_cell_health_wow_pill_html(bucket_key, curr_agg, prev_agg):
         elif d_mem == 0:
             arrow = "·"
             tone = _nwst_cell_health_wow_color_for_delta(bucket_key, pp_sh)
-            if tone == "#00FF9A":
+            if tone == "#2ecc71":
                 pill_cls = "ch-pill-good"
-            elif tone == "#FF4D5E":
+            elif tone == "#e74c3c":
                 pill_cls = "ch-pill-bad"
             else:
                 pill_cls = "ch-pill-flat"
         else:
             arrow = "↑" if d_mem > 0 else "↓"
             tone = _nwst_cell_health_wow_color_for_delta(bucket_key, d_mem)
-            if tone == "#00FF9A":
+            if tone == "#2ecc71":
                 pill_cls = "ch-pill-good"
-            elif tone == "#FF4D5E":
+            elif tone == "#e74c3c":
                 pill_cls = "ch-pill-bad"
             else:
                 pill_cls = "ch-pill-flat"
@@ -1312,14 +1284,13 @@ def _nwst_cell_health_kpi_png_b64(display_df, cell_filter, daily_colors) -> str:
         curr_agg, prev_agg, _, _ = _nwst_hist_cell_wow_for_scope(hist_df, cell_filter)
 
     ws = lambda k: _nwst_cell_health_wow_summary_text(k, curr_agg, prev_agg)
-    # High-chroma palette to match on-screen Cell Health (neon / glow-style export).
     cards = [
-        ("NEW MEMBERS", new_pct, new_count, "#38B8FF", ws("new")),
-        ("REGULAR MEMBERS", regular_pct, regular_count, "#00FF9A", ws("regular")),
-        ("IRREGULAR MEMBERS", irregular_pct, irregular_count, "#FF9A3C", ws("irregular")),
-        ("FOLLOW UP", follow_up_pct, follow_up_count, "#FFDD55", ws("follow_up")),
-        ("RED", red_pct, red_count, "#FF4D5E", ws("red")),
-        ("GRADUATED", graduated_pct, graduated_count, "#D278FF", ws("graduated")),
+        ("NEW MEMBERS", new_pct, new_count, "#3498db", ws("new")),
+        ("REGULAR MEMBERS", regular_pct, regular_count, "#2ecc71", ws("regular")),
+        ("IRREGULAR MEMBERS", irregular_pct, irregular_count, "#e67e22", ws("irregular")),
+        ("FOLLOW UP", follow_up_pct, follow_up_count, "#f39c12", ws("follow_up")),
+        ("RED", red_pct, red_count, "#e74c3c", ws("red")),
+        ("GRADUATED", graduated_pct, graduated_count, "#9b59b6", ws("graduated")),
     ]
     if cell_scoped:
         cards = cards[:4]
@@ -1336,72 +1307,45 @@ def _nwst_cell_health_kpi_png_b64(display_df, cell_filter, daily_colors) -> str:
         else str(cell_filter).strip()
     )
 
-    W, pad, gap, radius = 1320, 44, 24, 16
+    # Larger typography than the original export (user request); palette matches the live app.
+    W, pad, gap, radius = 1240, 40, 20, 14
     cols = 2 if len(cards) == 4 else 3
     rows = (len(cards) + cols - 1) // cols
     card_w = (W - pad * 2 - gap * (cols - 1)) // cols
-    card_h = 238
-    title_block = 108
+    card_h = 198
+    title_block = 96
     H = pad * 2 + title_block + rows * card_h + max(0, rows - 1) * gap
 
-    img = Image.new("RGB", (W, H), (0, 0, 0))
+    img = Image.new("RGB", (W, H), (11, 11, 11))
     draw = ImageDraw.Draw(img)
-    f_title = _nwst_pil_font(28)
-    f_scope = _nwst_pil_font(20)
-    f_lbl = _nwst_pil_font(16)
-    f_pct = _nwst_pil_font(58)
-    f_wow = _nwst_pil_font(18)
-    f_sub = _nwst_pil_font(18)
-    border_rgb = (218, 165, 110)
+    f_title = _nwst_pil_font(26)
+    f_scope = _nwst_pil_font(19)
+    f_lbl = _nwst_pil_font(15)
+    f_pct = _nwst_pil_font(48)
+    f_wow = _nwst_pil_font(16)
+    f_sub = _nwst_pil_font(16)
+    border_rgb = (198, 123, 79)
 
     draw.text((pad, pad), "CELL HEALTH", fill=title_rgb, font=f_title)
-    draw.text((pad, pad + 40), scope_label, fill=(220, 220, 220), font=f_scope)
+    draw.text((pad, pad + 38), scope_label, fill=(190, 190, 190), font=f_scope)
 
     def _parse_hex(h):
         h = h.lstrip("#")
         return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4)) if len(h) == 6 else (255, 255, 255)
-
-    def _draw_neon_percent(x, y, text, font, rgb):
-        """Stacked soft halos + bright core to approximate CSS text-shadow / glow."""
-        r, g, b = rgb
-        for spread, weight in ((9, 0.2), (5, 0.38), (2, 0.58)):
-            gr = tuple(int(c * weight) for c in (r, g, b))
-            for dx in range(-spread, spread + 1, 3):
-                for dy in range(-spread, spread + 1, 3):
-                    if dx * dx + dy * dy <= spread * spread + 2:
-                        draw.text((x + dx, y + dy), text, font=font, fill=gr)
-        core = (min(255, int(r * 1.08) + 35), min(255, int(g * 1.08) + 35), min(255, int(b * 1.08) + 35))
-        draw.text((x, y), text, font=font, fill=core)
-
-    def _wow_fill_for_label(card_label, wow_line):
-        u = card_label.upper()
-        if "RED" in u:
-            return (255, 140, 158)
-        if "GRADUATED" in u:
-            return (200, 200, 210)
-        if "Need 2" in wow_line or wow_line == "—":
-            return (160, 160, 168)
-        return (110, 235, 215)
 
     for i, (label, pct, n_mem, col_hex, wow_txt) in enumerate(cards):
         r, c = divmod(i, cols)
         x0 = pad + c * (card_w + gap)
         y0 = pad + title_block + r * (card_h + gap)
         x1, y1 = x0 + card_w, y0 + card_h
-        draw.rounded_rectangle(
-            [x0, y0, x1, y1], radius=radius, outline=border_rgb, width=3, fill=(18, 18, 18)
-        )
+        draw.rounded_rectangle([x0, y0, x1, y1], radius=radius, outline=border_rgb, width=2, fill=(24, 24, 24))
         col_rgb = _parse_hex(col_hex)
-        tx = x0 + 18
-        ty = y0 + 16
-        draw.text((tx, ty), label, fill=(245, 245, 245), font=f_lbl)
-        pct_text = f"{pct:.0f}%"
-        pct_y = ty + 26
-        _draw_neon_percent(tx, pct_y, pct_text, f_pct, col_rgb)
-        wow_line = wow_txt[:52] if len(wow_txt) > 52 else wow_txt
-        wow_y = pct_y + 70
-        draw.text((tx, wow_y), wow_line, fill=_wow_fill_for_label(label, wow_txt), font=f_wow)
-        draw.text((tx, y1 - 30), f"{n_mem} members", fill=(232, 232, 232), font=f_sub)
+        tx = x0 + 16
+        ty = y0 + 14
+        draw.text((tx, ty), label, fill=(200, 200, 200), font=f_lbl)
+        draw.text((tx, ty + 28), f"{pct:.0f}%", fill=col_rgb, font=f_pct)
+        draw.text((tx, ty + 100), wow_txt[:44], fill=(160, 210, 200), font=f_wow)
+        draw.text((tx, y1 - 34), f"{n_mem} members", fill=(170, 170, 170), font=f_sub)
 
     buf = BytesIO()
     img.save(buf, format="PNG", optimize=True)
@@ -2926,9 +2870,9 @@ def render_monthly_status_html_table(df):
 def get_member_category_color(category):
     """Return color based on member category."""
     colors = {
-        "New": "#38B8FF",      # Blue
-        "Regular": "#00FF9A",   # Green
-        "Irregular": "#FF9A3C"  # Orange
+        "New": "#3498db",      # Blue
+        "Regular": "#2ecc71",   # Green
+        "Irregular": "#e67e22"  # Orange
     }
     return colors.get(category, "#95a5a6")
 
@@ -4248,28 +4192,28 @@ st.markdown(f"""
         font-weight: 700;
     }}
     .monthly-status-regular {{
-        color: #00FF9A;
+        color: #2ecc71;
         font-weight: 700;
     }}
     .monthly-status-irregular {{
-        color: #FF9A3C;
+        color: #e67e22;
         font-weight: 700;
     }}
     .monthly-status-followup {{
-        color: #FFDD55;
+        color: #f39c12;
         font-weight: 700;
     }}
     /* Health column: sheet / tile statuses (match member-tile border colors) */
     .monthly-health-tile-new {{
-        color: #38B8FF;
+        color: #3498db;
         font-weight: 700;
     }}
     .monthly-health-tile-red {{
-        color: #FF4D5E;
+        color: #e74c3c;
         font-weight: 700;
     }}
     .monthly-health-tile-graduated {{
-        color: #D278FF;
+        color: #9b59b6;
         font-weight: 700;
     }}
 
