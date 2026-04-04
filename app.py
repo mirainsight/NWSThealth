@@ -1,6 +1,8 @@
 import html
+import importlib.util
 import os
 import time
+from pathlib import Path
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 import colorsys
@@ -2732,6 +2734,114 @@ def get_today_myt_date():
     myt = timezone(timedelta(hours=8))
     return datetime.now(myt).strftime("%Y-%m-%d")
 
+
+def _normalize_primary_hex(hex_str):
+    h = (hex_str or "").strip()
+    if not h:
+        return None
+    if not h.startswith("#"):
+        h = "#" + h
+    if len(h) != 7:
+        return None
+    try:
+        int(h[1:], 16)
+    except ValueError:
+        return None
+    return h.lower()
+
+
+def theme_from_primary_hex(primary_hex):
+    """Build the same daily_colors shape as generate_colors_for_date from a fixed primary."""
+    p = _normalize_primary_hex(primary_hex)
+    if not p:
+        raise ValueError("Invalid primary hex")
+    r = int(p[1:3], 16) / 255.0
+    g = int(p[3:5], 16) / 255.0
+    b = int(p[5:7], 16) / 255.0
+    h, light, sat = colorsys.rgb_to_hls(r, g, b)
+    rgb_light = colorsys.hls_to_rgb(h, min(light + 0.2, 0.9), sat)
+    light_color = "#{:02x}{:02x}{:02x}".format(
+        int(rgb_light[0] * 255),
+        int(rgb_light[1] * 255),
+        int(rgb_light[2] * 255),
+    )
+    return {
+        "primary": p,
+        "light": light_color,
+        "background": "#000000",
+        "accent": p,
+    }
+
+
+_nwst_accent_cfg_mod = None
+
+
+def _accent_overrides_from_project_config():
+    """Load nwst_accent_config.py from this folder or an ancestor (next to nwst_accent_*.py)."""
+    global _nwst_accent_cfg_mod
+    if _nwst_accent_cfg_mod is None:
+        p = Path(__file__).resolve().parent
+        for _ in range(15):
+            cfg = p / "nwst_accent_config.py"
+            if cfg.is_file():
+                spec = importlib.util.spec_from_file_location("_nwst_accent_cfg", cfg)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                _nwst_accent_cfg_mod = mod
+                break
+            if p.parent == p:
+                break
+            p = p.parent
+    if _nwst_accent_cfg_mod is None:
+        return {}
+    return _nwst_accent_cfg_mod.get_accent_override_by_date()
+
+
+def _theme_overrides_from_redis():
+    """Theme Override rows from Upstash (refreshed on Sync from Google Sheets or CHECK IN Update names)."""
+    redis_client = get_redis_client()
+    if _nwst_accent_cfg_mod is None:
+        _accent_overrides_from_project_config()
+    if _nwst_accent_cfg_mod:
+        try:
+            return _nwst_accent_cfg_mod.read_theme_override_from_redis(redis_client)
+        except Exception:
+            return {}
+    return {}
+
+
+def resolve_theme_override_row_for_today():
+    """Today's row from JSON + Theme Override (Redis snapshot): optional primary hex and/or banner."""
+    today = get_today_myt_date()
+    from_file = _accent_overrides_from_project_config()
+    from_sheet = _theme_overrides_from_redis()
+    if _nwst_accent_cfg_mod:
+        merged = _nwst_accent_cfg_mod.merge_theme_override_maps(from_file, from_sheet)
+    else:
+        keys = set(from_file) | set(from_sheet)
+        merged = {
+            k: {**(from_file.get(k) or {}), **(from_sheet.get(k) or {})}
+            for k in keys
+            if {**(from_file.get(k) or {}), **(from_sheet.get(k) or {})}
+        }
+    row = dict(merged.get(today) or {})
+    if not row.get("primary"):
+        env_d = os.getenv("ATTENDANCE_ACCENT_OVERRIDE_DATE", "").strip()
+        env_h = os.getenv("ATTENDANCE_ACCENT_OVERRIDE_HEX", "").strip()
+        if env_d == today and env_h:
+            row["primary"] = env_h.strip()
+        else:
+            try:
+                if hasattr(st, "secrets"):
+                    sd = str(st.secrets.get("ATTENDANCE_ACCENT_OVERRIDE_DATE", "")).strip()
+                    sh = str(st.secrets.get("ATTENDANCE_ACCENT_OVERRIDE_HEX", "")).strip()
+                    if sd == today and sh:
+                        row["primary"] = sh.strip()
+            except Exception:
+                pass
+    return row
+
+
 def generate_colors_for_date(date_str):
     """Generate random colors based on a specific date (consistent for that date)
 
@@ -2770,12 +2880,28 @@ def generate_colors_for_date(date_str):
     }
 
 def generate_daily_colors():
-    """Generate random colors based on the most recent Saturday (MYT).
-    Colors change every Saturday and stay the same throughout the week."""
+    """Weekly Saturday-locked palette (MYT), unless today has a theme override row."""
     today = datetime.strptime(get_today_myt_date(), "%Y-%m-%d")
     days_since_saturday = (today.weekday() - 5) % 7
     last_saturday = today - timedelta(days=days_since_saturday)
-    return generate_colors_for_date(last_saturday.strftime("%Y-%m-%d"))
+    row = resolve_theme_override_row_for_today()
+    hex_override = row.get("primary")
+    base = None
+    if hex_override:
+        pn = _normalize_primary_hex(hex_override)
+        if pn:
+            base = theme_from_primary_hex(pn)
+    if base is None:
+        base = generate_colors_for_date(last_saturday.strftime("%Y-%m-%d"))
+    b_raw = row.get("banner")
+    if b_raw:
+        if _nwst_accent_cfg_mod is None:
+            _accent_overrides_from_project_config()
+        if _nwst_accent_cfg_mod:
+            safe = _nwst_accent_cfg_mod.sanitize_banner_filename(b_raw)
+            if safe:
+                base = {**base, "banner": safe}
+    return base
 
 
 def _render_nwst_analytics_individual_attendance(colors, cell_to_zone_map):
@@ -3492,6 +3618,13 @@ st.set_page_config(
 # Weekly accent theme (locked to most recent Saturday MYT, same as CHECK IN attendance app)
 daily_colors = generate_daily_colors()
 
+# Optional banner image from Theme Override (file in NWST HEALTH folder, not .streamlit/)
+_nwst_banner = daily_colors.get("banner")
+if _nwst_banner:
+    _nwst_banner_path = Path(__file__).resolve().parent.parent / _nwst_banner
+    if _nwst_banner_path.is_file():
+        st.image(str(_nwst_banner_path), use_container_width=True)
+
 # Convert hex color to RGB for rgba shadows
 def hex_to_rgb(hex_color):
     hex_color = hex_color.lstrip('#')
@@ -4099,6 +4232,17 @@ if current_page == "cg":
                             sync_time_myt = datetime.now(myt)
                             sync_time_str = sync_time_myt.strftime("%Y-%m-%d %H:%M:%S MYT")
                             redis.set("nwst_last_sync_time", sync_time_str)
+                            checkin_sid = (CHECKIN_ATTENDANCE_SHEET_ID or "").strip()
+                            if checkin_sid and client:
+                                try:
+                                    if _nwst_accent_cfg_mod is None:
+                                        _accent_overrides_from_project_config()
+                                    if _nwst_accent_cfg_mod:
+                                        _nwst_accent_cfg_mod.refresh_theme_override_shared_cache(
+                                            redis, client, checkin_sid
+                                        )
+                                except Exception:
+                                    pass
                         else:
                             st.warning("⚠️ Redis not configured, but data loaded from Google Sheets.")
 
