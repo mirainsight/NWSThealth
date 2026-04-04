@@ -1,9 +1,12 @@
+import base64
 import html
 import importlib.util
 import os
 import time
+from io import BytesIO
 from pathlib import Path
 import streamlit as st
+import streamlit.components.v1 as components
 from datetime import datetime, timedelta, timezone
 import colorsys
 import hashlib
@@ -458,10 +461,26 @@ def _render_cg_cell_health_section(display_df, daily_colors, cell_filter="All", 
     opacity: 0.95;
   }}
 </style>
-<p class="ch-head-nwst">Cell health</p>
 """,
         unsafe_allow_html=True,
     )
+
+    _ch_head_l, _ch_head_r = st.columns([11, 1])
+    with _ch_head_l:
+        st.markdown(
+            f'<p class="ch-head-nwst">Cell health</p>',
+            unsafe_allow_html=True,
+        )
+    with _ch_head_r:
+        try:
+            _ch_b64 = _nwst_cell_health_kpi_png_b64(display_df, cell_filter, daily_colors)
+            components.html(
+                _nwst_ch_cell_health_copy_icon_html(_ch_b64, prim_hex),
+                height=52,
+                width=72,
+            )
+        except ImportError:
+            st.caption("pip install Pillow to enable KPI copy")
 
     def _member_tiles(data_df, border_color):
         if data_df.empty:
@@ -1146,6 +1165,218 @@ def _nwst_cell_health_wow_pill_html(bucket_key, curr_agg, prev_agg):
         '<div class="ch-pill-wrap"><span class="ch-pill ch-pill--hero ch-pill-na">'
         "Need 2 log snapshots</span></div>"
     )
+
+
+def _nwst_cell_health_wow_summary_text(bucket_key, curr_agg, prev_agg):
+    """Plain-text WoW line for KPI snapshot images (mirrors ``_nwst_cell_health_wow_pill_html`` logic)."""
+
+    def _agg_n(agg, key):
+        if not agg:
+            return 0
+        if key == "follow_up":
+            return int(agg.get("follow up", 0) or 0)
+        return int(agg.get(key, 0) or 0)
+
+    if not curr_agg or not prev_agg:
+        return "Need 2 log snapshots"
+
+    c = _agg_n(curr_agg, bucket_key)
+    p = _agg_n(prev_agg, bucket_key)
+    d_mem = c - p
+    tot_c = _agg_n(curr_agg, "total")
+    tot_p = _agg_n(prev_agg, "total")
+    if tot_p <= 0 or tot_c <= 0:
+        return "—"
+
+    pp_sh = float((100.0 * c / tot_c) - (100.0 * p / tot_p))
+    pp_str = f"{pp_sh:+.1f}%"
+    mem_str = f"{d_mem:+d}"
+    flat = d_mem == 0 and abs(pp_sh) < 0.05
+
+    if bucket_key == "new":
+        arrow = "·" if d_mem == 0 else ("↑" if d_mem > 0 else "↓")
+    elif flat:
+        arrow = "·"
+    elif d_mem == 0:
+        arrow = "·"
+    else:
+        arrow = "↑" if d_mem > 0 else "↓"
+
+    return f"{arrow} {mem_str} ({pp_str})"
+
+
+def _nwst_pil_font(size: int):
+    from PIL import ImageFont
+
+    for path in (
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/Library/Fonts/Arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        r"C:\Windows\Fonts\arial.ttf",
+    ):
+        if os.path.isfile(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except OSError:
+                continue
+    return ImageFont.load_default()
+
+
+def _nwst_cell_health_kpi_png_b64(display_df, cell_filter, daily_colors) -> str:
+    """Rasterize current Cell Health KPI grid (respects cell filter) for clipboard export."""
+    from PIL import Image, ImageDraw
+
+    if display_df is None or display_df.empty:
+        raise ValueError("No cell health data to export.")
+
+    work_df = display_df.copy()
+    status_columns = [col for col in work_df.columns if "status" in col.lower()]
+    status_col = status_columns[0] if status_columns else None
+
+    if status_col:
+        work_df["status_type"] = work_df[status_col].apply(extract_cell_sheet_status_type)
+        new_count = len(work_df[work_df["status_type"] == "New"])
+        regular_count = len(work_df[work_df["status_type"] == "Regular"])
+        irregular_count = len(work_df[work_df["status_type"] == "Irregular"])
+        follow_up_count = len(work_df[work_df["status_type"] == "Follow Up"])
+        red_count = len(work_df[work_df["status_type"] == "Red"])
+        graduated_count = len(work_df[work_df["status_type"] == "Graduated"])
+    else:
+        total_members_fb = len(work_df)
+        new_count = max(1, int(total_members_fb * 0.20))
+        regular_count = max(1, int(total_members_fb * 0.40))
+        irregular_count = max(1, int(total_members_fb * 0.20))
+        follow_up_count = max(1, int(total_members_fb * 0.10))
+        red_count = max(1, int(total_members_fb * 0.05))
+        graduated_count = (
+            total_members_fb - new_count - regular_count - irregular_count - follow_up_count - red_count
+        )
+
+    total_members = new_count + regular_count + irregular_count + follow_up_count + red_count + graduated_count
+
+    cell_scoped = (
+        cell_filter is not None
+        and str(cell_filter).strip()
+        and str(cell_filter).strip().lower() != "all"
+    )
+    if cell_scoped:
+        mix_denom = new_count + regular_count + irregular_count + follow_up_count
+        if mix_denom > 0:
+            new_pct = new_count / mix_denom * 100
+            regular_pct = regular_count / mix_denom * 100
+            irregular_pct = irregular_count / mix_denom * 100
+            follow_up_pct = follow_up_count / mix_denom * 100
+        else:
+            new_pct = regular_pct = irregular_pct = follow_up_pct = 0.0
+        red_pct = 0.0
+        graduated_pct = 0.0
+    else:
+        new_pct = (new_count / total_members * 100) if total_members > 0 else 0
+        regular_pct = (regular_count / total_members * 100) if total_members > 0 else 0
+        irregular_pct = (irregular_count / total_members * 100) if total_members > 0 else 0
+        follow_up_pct = (follow_up_count / total_members * 100) if total_members > 0 else 0
+        red_pct = (red_count / total_members * 100) if total_members > 0 else 0
+        graduated_pct = (graduated_count / total_members * 100) if total_members > 0 else 0
+
+    hist_df = load_historical_cell_status_dataframe()
+    curr_agg, prev_agg = None, None
+    if hist_df is not None and not hist_df.empty:
+        curr_agg, prev_agg, _, _ = _nwst_hist_cell_wow_for_scope(hist_df, cell_filter)
+
+    ws = lambda k: _nwst_cell_health_wow_summary_text(k, curr_agg, prev_agg)
+    cards = [
+        ("NEW MEMBERS", new_pct, new_count, "#3498db", ws("new")),
+        ("REGULAR MEMBERS", regular_pct, regular_count, "#2ecc71", ws("regular")),
+        ("IRREGULAR MEMBERS", irregular_pct, irregular_count, "#e67e22", ws("irregular")),
+        ("FOLLOW UP", follow_up_pct, follow_up_count, "#f39c12", ws("follow_up")),
+        ("RED", red_pct, red_count, "#e74c3c", ws("red")),
+        ("GRADUATED", graduated_pct, graduated_count, "#9b59b6", ws("graduated")),
+    ]
+    if cell_scoped:
+        cards = cards[:4]
+
+    accent = str(daily_colors.get("primary", "#00ff00")).lstrip("#")
+    if len(accent) == 6:
+        title_rgb = tuple(int(accent[i : i + 2], 16) for i in (0, 2, 4))
+    else:
+        title_rgb = (0, 255, 0)
+
+    scope_label = (
+        "All cells"
+        if cell_filter is None or str(cell_filter).strip().lower() == "all"
+        else str(cell_filter).strip()
+    )
+
+    W, pad, gap, radius = 1120, 36, 18, 14
+    cols = 2 if len(cards) == 4 else 3
+    rows = (len(cards) + cols - 1) // cols
+    card_w = (W - pad * 2 - gap * (cols - 1)) // cols
+    card_h = 168
+    title_block = 88
+    H = pad * 2 + title_block + rows * card_h + max(0, rows - 1) * gap
+
+    img = Image.new("RGB", (W, H), (11, 11, 11))
+    draw = ImageDraw.Draw(img)
+    f_title = _nwst_pil_font(20)
+    f_scope = _nwst_pil_font(15)
+    f_lbl = _nwst_pil_font(12)
+    f_pct = _nwst_pil_font(38)
+    f_wow = _nwst_pil_font(13)
+    f_sub = _nwst_pil_font(13)
+    border_rgb = (198, 123, 79)
+
+    draw.text((pad, pad), "CELL HEALTH", fill=title_rgb, font=f_title)
+    draw.text((pad, pad + 36), scope_label, fill=(180, 180, 180), font=f_scope)
+
+    def _parse_hex(h):
+        h = h.lstrip("#")
+        return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4)) if len(h) == 6 else (255, 255, 255)
+
+    for i, (label, pct, n_mem, col_hex, wow_txt) in enumerate(cards):
+        r, c = divmod(i, cols)
+        x0 = pad + c * (card_w + gap)
+        y0 = pad + title_block + r * (card_h + gap)
+        x1, y1 = x0 + card_w, y0 + card_h
+        draw.rounded_rectangle([x0, y0, x1, y1], radius=radius, outline=border_rgb, width=2, fill=(24, 24, 24))
+        col_rgb = _parse_hex(col_hex)
+        tx = x0 + 16
+        ty = y0 + 14
+        draw.text((tx, ty), label, fill=(190, 190, 190), font=f_lbl)
+        draw.text((tx, ty + 30), f"{pct:.0f}%", fill=col_rgb, font=f_pct)
+        draw.text((tx, ty + 92), wow_txt[:42], fill=(160, 210, 200), font=f_wow)
+        draw.text((tx, y1 - 36), f"{n_mem} members", fill=(130, 130, 130), font=f_sub)
+
+    buf = BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def _nwst_ch_cell_health_copy_icon_html(b64_png: str, accent_hex: str) -> str:
+    acc = html.escape(accent_hex, quote=True)
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;background:transparent;">
+<button type="button" id="nwstChCopy" title="Copy Cell Health KPI image to clipboard"
+ aria-label="Copy Cell Health KPI image to clipboard"
+ style="margin:0;padding:2px 7px 4px 7px;font-size:1.05rem;line-height:1;cursor:pointer;background:transparent;color:{acc};border:2px solid {acc};border-radius:2px;">📋</button>
+<script>
+(function() {{
+  const b64 = "{b64_png}";
+  const btn = document.getElementById('nwstChCopy');
+  btn.addEventListener('click', async function () {{
+    try {{
+      const blob = await (await fetch('data:image/png;base64,' + b64)).blob();
+      await navigator.clipboard.write([new ClipboardItem({{ 'image/png': blob }})]);
+      const prev = btn.innerHTML;
+      btn.innerHTML = '✓';
+      btn.disabled = true;
+      setTimeout(function () {{ btn.innerHTML = prev; btn.disabled = false; }}, 1400);
+    }} catch (e) {{
+      window.alert('Could not copy image: ' + (e && e.message ? e.message : String(e)));
+    }}
+  }});
+}})();
+</script>
+</body></html>"""
 
 
 def _nwst_normalize_member_name(s):
