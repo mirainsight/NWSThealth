@@ -5,6 +5,7 @@ import re
 import time
 from pathlib import Path
 import streamlit as st
+import streamlit.components.v1 as components
 from datetime import datetime, timedelta, timezone
 import colorsys
 import hashlib
@@ -23,6 +24,130 @@ from upstash_redis import Redis
 NWST_HEALTH_SHEET_ID = "1uexbQinWl1r6NgmSrmOXPtWs-q4OJV3o1OwLywMWzzY"
 # Processed Attendance grid for Cell Attendance charts (shared across instances via Upstash)
 NWST_REDIS_ATTENDANCE_CHART_GRID_KEY = "nwst_attendance_chart_grid"
+
+# Monthly matrix shown in st.components.v1.html (iframe) — must be self-contained (no Streamlit theme CSS).
+_MONTHLY_ATTENDANCE_IFRAME_CSS = r"""
+.monthly-attendance-table-wrap {
+    overflow-x: auto;
+    margin: 0.35rem 0 1.25rem 0;
+    width: 100%;
+}
+.monthly-attendance-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.9rem;
+}
+.monthly-attendance-table th {
+    text-align: left;
+    padding: 0.65rem 0.75rem;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.12);
+    color: #999;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+.monthly-attendance-table td {
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    color: #e8e8e8;
+}
+.monthly-attendance-table th:nth-child(1),
+.monthly-attendance-table td:nth-child(1),
+.monthly-attendance-table th:nth-child(2),
+.monthly-attendance-table td:nth-child(2) {
+    max-width: 7.5rem;
+    width: 1%;
+    overflow: hidden;
+    vertical-align: top;
+}
+.monthly-attendance-table .monthly-trunc-details {
+    max-width: 100%;
+}
+.monthly-attendance-table .monthly-trunc-summary {
+    cursor: pointer;
+    list-style: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+    color: #e0e0e0;
+    font-weight: 400;
+    font-size: inherit;
+    text-transform: none;
+    border-bottom: none;
+    letter-spacing: normal;
+}
+.monthly-attendance-table .monthly-trunc-summary::-webkit-details-marker {
+    display: none;
+}
+.monthly-attendance-table .monthly-trunc-full {
+    display: block;
+    margin-top: 0.35rem;
+    padding-top: 0.35rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    color: #e0e0e0;
+    font-weight: 400;
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.3;
+    text-transform: none;
+}
+.monthly-attendance-table th:nth-child(3),
+.monthly-attendance-table td:nth-child(3) {
+    max-width: 5.75rem;
+    width: 1%;
+    white-space: nowrap;
+    padding-left: 0.45rem;
+    padding-right: 0.45rem;
+    font-size: 0.82rem;
+}
+.monthly-attendance-table th:nth-child(n+4),
+.monthly-attendance-table td:nth-child(n+4) {
+    max-width: 3.75rem;
+    width: 1%;
+    white-space: nowrap;
+    text-align: center;
+    padding: 0.45rem 0.35rem;
+    font-size: 0.82rem;
+}
+.monthly-attendance-table .monthly-attendance-rate-cell span {
+    font-weight: 700;
+}
+.monthly-status-regular {
+    color: #2ecc71;
+    font-weight: 700;
+}
+.monthly-status-irregular {
+    color: #e67e22;
+    font-weight: 700;
+}
+.monthly-status-followup {
+    color: #f39c12;
+    font-weight: 700;
+}
+.monthly-health-tile-new {
+    color: #3498db;
+    font-weight: 700;
+}
+.monthly-health-tile-red {
+    color: #e74c3c;
+    font-weight: 700;
+}
+.monthly-health-tile-graduated {
+    color: #9b59b6;
+    font-weight: 700;
+}
+.monthly-sort-th {
+    user-select: none;
+    cursor: pointer;
+}
+.monthly-sort-th:hover {
+    color: #cccccc !important;
+}
+"""
 
 # CHECK IN attendance spreadsheet — used only for the Analytics tab (Attendance Analytics, Options, Key Values)
 CHECKIN_ATTENDANCE_SHEET_ID = os.getenv("ATTENDANCE_SHEET_ID", "").strip()
@@ -2481,13 +2606,6 @@ _MONTHLY_STATUS_SORT_RANK = {
 }
 
 
-def _monthly_table_sortable_columns(df):
-    """Display columns (excludes internal _tile_status)."""
-    if df is None or df.empty:
-        return []
-    return [c for c in df.columns if c != "_tile_status"]
-
-
 def _health_string_sort_key(val):
     """Parse Health like '3/12 (25.0%)' for numeric sort; missing → NaN."""
     if val is None or (isinstance(val, float) and pd.isna(val)):
@@ -2514,61 +2632,6 @@ def _monthly_month_cell_sort_key(val):
     return _MONTHLY_STATUS_SORT_RANK.get(t, 50)
 
 
-def sort_monthly_status_dataframe(df, sort_column, ascending=True):
-    """
-    Sort monthly matrix rows by a display column. Health uses attendance % when present;
-    month columns use Follow Up / Irregular / Regular / —; Cell and Member are case-insensitive.
-    """
-    if df is None or df.empty or not sort_column:
-        return df
-    if sort_column not in df.columns or sort_column == "_tile_status":
-        return df
-    out = df.copy()
-    asc_tuple = (ascending, True, True)
-    if sort_column == "Health":
-        sk = out[sort_column].map(_health_string_sort_key)
-        out = out.assign(
-            _sk=sk,
-            _mk=out["Member"].fillna("").astype(str).str.strip().str.lower(),
-            _ck=out["Cell"].fillna("").astype(str).str.strip().str.lower(),
-        )
-        out = out.sort_values(
-            ["_sk", "_mk", "_ck"],
-            ascending=asc_tuple,
-            na_position="last",
-        )
-        out = out.drop(columns=["_sk", "_mk", "_ck"])
-    elif sort_column in ("Cell", "Member"):
-        sk = (
-            out[sort_column]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .str.lower()
-        )
-        other = "Member" if sort_column == "Cell" else "Cell"
-        out = out.assign(
-            _sk=sk,
-            _ok=out[other].fillna("").astype(str).str.strip().str.lower(),
-        )
-        out = out.sort_values(["_sk", "_ok"], ascending=(ascending, True), na_position="last")
-        out = out.drop(columns=["_sk", "_ok"])
-    else:
-        sk = out[sort_column].map(_monthly_month_cell_sort_key)
-        out = out.assign(
-            _sk=sk,
-            _mk=out["Member"].fillna("").astype(str).str.strip().str.lower(),
-            _ck=out["Cell"].fillna("").astype(str).str.strip().str.lower(),
-        )
-        out = out.sort_values(
-            ["_sk", "_mk", "_ck"],
-            ascending=asc_tuple,
-            na_position="last",
-        )
-        out = out.drop(columns=["_sk", "_mk", "_ck"])
-    return out.reset_index(drop=True)
-
-
 def _worst_status_last_three_months(row, month_cols):
     """
     Fallback Health coloring when sheet tile status is missing: worst of the last
@@ -2592,19 +2655,33 @@ def _worst_status_last_three_months(row, month_cols):
     return worst_label
 
 
-def _monthly_trunc_expand_cell(value: str) -> str:
+def _monthly_trunc_expand_cell(value: str, extra_attrs: str = "") -> str:
     """Narrow Cell/Member columns: summary truncates with CSS ellipsis; click opens full text below."""
     full = (value or "").strip()
     esc_full = html.escape(full)
     if not full:
-        return '<td class="monthly-trunc-cell"></td>'
+        return f'<td class="monthly-trunc-cell"{extra_attrs}></td>'
     inner = (
         f'<details class="monthly-trunc-details">'
         f'<summary class="monthly-trunc-summary" title="Click to show full text">{esc_full}</summary>'
         f'<span class="monthly-trunc-full">{esc_full}</span>'
         f"</details>"
     )
-    return f'<td class="monthly-trunc-cell">{inner}</td>'
+    return f'<td class="monthly-trunc-cell"{extra_attrs}>{inner}</td>'
+
+
+def _monthly_td_sort_attrs(col: str, sval: str) -> str:
+    """data-* attributes for client-side column sort (lexographic or numeric)."""
+    if col == "Health":
+        k = _health_string_sort_key(sval)
+        if k != k:  # NaN
+            return ' data-sort-t="num" data-sort-v=""'
+        return f' data-sort-t="num" data-sort-v="{html.escape(f"{k:.6g}", quote=True)}"'
+    if col in ("Cell", "Member"):
+        v = (sval or "").strip().lower()
+        return f' data-sort-t="lex" data-sort-v="{html.escape(v, quote=True)}"'
+    r = _monthly_month_cell_sort_key(sval)
+    return f' data-sort-t="num" data-sort-v="{int(r)}"'
 
 
 def _newcomer_trunc_expand_cell(value: str) -> str:
@@ -2657,7 +2734,7 @@ def render_newcomer_list_html_table(df: pd.DataFrame, columns: list) -> str:
     )
 
 
-def render_monthly_status_html_table(df, sort_column=None, sort_ascending=True):
+def render_monthly_status_html_table(df):
     """Render monthly status matrix as HTML with bold status labels (tile-matching colors)."""
     if df is None or df.empty:
         return ""
@@ -2681,10 +2758,13 @@ def render_monthly_status_html_table(df, sort_column=None, sort_ascending=True):
 
     header_parts = []
     for c in display_columns:
-        label = html.escape(str(c))
-        if sort_column is not None and str(sort_column) == str(c):
-            label += " \u25B2" if sort_ascending else " \u25BC"
-        header_parts.append(f"<th>{label}</th>")
+        lab = str(c)
+        header_parts.append(
+            "<th class=\"monthly-sort-th\" "
+            f"title=\"Click to sort; click again to reverse\" "
+            f'data-label="{html.escape(lab, quote=True)}">'
+            f"{html.escape(lab)}</th>"
+        )
     header_cells = "".join(header_parts)
     body_rows = []
     has_tile_col = "_tile_status" in df.columns
@@ -2703,28 +2783,30 @@ def render_monthly_status_html_table(df, sort_column=None, sort_ascending=True):
         for col in display_columns:
             raw = row[col]
             sval = "" if pd.isna(raw) else str(raw).strip()
+            sa = _monthly_td_sort_attrs(col, sval)
             if col == "Health":
                 att_cls = health_tile_classes.get(eff_health_status, "")
                 if att_cls:
                     cells.append(
-                        f"<td class=\"monthly-attendance-rate-cell\"><span class=\"{att_cls}\">{html.escape(sval)}</span></td>"
+                        f"<td class=\"monthly-attendance-rate-cell\"{sa}>"
+                        f"<span class=\"{att_cls}\">{html.escape(sval)}</span></td>"
                     )
                 else:
                     cells.append(
-                        f"<td class=\"monthly-attendance-rate-cell\">{html.escape(sval)}</td>"
+                        f"<td class=\"monthly-attendance-rate-cell\"{sa}>{html.escape(sval)}</td>"
                     )
             elif col == "Member":
-                cells.append(_monthly_trunc_expand_cell(sval))
+                cells.append(_monthly_trunc_expand_cell(sval, sa))
             elif col == "Cell":
-                cells.append(_monthly_trunc_expand_cell(sval))
+                cells.append(_monthly_trunc_expand_cell(sval, sa))
             else:
                 mo_span = status_span.get(sval, "")
                 if mo_span:
                     cells.append(
-                        f"<td><span class=\"{mo_span}\">{html.escape(sval)}</span></td>"
+                        f"<td{sa}><span class=\"{mo_span}\">{html.escape(sval)}</span></td>"
                     )
                 else:
-                    cells.append(f"<td>{html.escape(sval)}</td>")
+                    cells.append(f"<td{sa}>{html.escape(sval)}</td>")
         body_rows.append("<tr>" + "".join(cells) + "</tr>")
 
     return (
@@ -2734,6 +2816,88 @@ def render_monthly_status_html_table(df, sort_column=None, sort_ascending=True):
         f"<tbody>{''.join(body_rows)}</tbody>"
         "</table></div>"
     )
+
+
+def display_monthly_status_interactive(df: pd.DataFrame) -> None:
+    """
+    Same matrix as render_monthly_status_html_table, with click-to-sort headers (client-side).
+    Uses an iframe so JavaScript runs; includes embedded CSS to match the main app.
+    """
+    table_html = render_monthly_status_html_table(df)
+    if not table_html:
+        return
+    wrap_id = "mw_" + hashlib.md5(
+        f"{len(df)}|{'|'.join(str(c) for c in df.columns)}".encode()
+    ).hexdigest()[:12]
+    n = len(df)
+    iframe_h = int(max(380, min(1000, 100 + n * 30)))
+    js_wrap = json.dumps(wrap_id)
+    full = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+body {{ margin: 0; background: #0e1117; }}
+{_MONTHLY_ATTENDANCE_IFRAME_CSS}
+</style></head><body>
+<div id="{wrap_id}">{table_html}</div>
+<script>
+(function() {{
+  const root = document.getElementById({js_wrap});
+  if (!root) return;
+  const table = root.querySelector('table.monthly-attendance-table');
+  if (!table) return;
+  const tbody = table.querySelector('tbody');
+  const ths = Array.from(table.querySelectorAll('thead th.monthly-sort-th'));
+  if (!tbody || ths.length === 0) return;
+  let sortCol = -1;
+  let sortAsc = true;
+  function numFromTd(td) {{
+    const v = td.getAttribute('data-sort-v');
+    if (v === null || v === '') return NaN;
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : NaN;
+  }}
+  function cmpRows(r1, r2, colIdx) {{
+    const ta = r1.children[colIdx];
+    const tb = r2.children[colIdx];
+    if (!ta || !tb) return 0;
+    const typ = ta.getAttribute('data-sort-t') || 'lex';
+    if (typ === 'num') {{
+      const na = numFromTd(ta), nb = numFromTd(tb);
+      const aNa = Number.isNaN(na), bNa = Number.isNaN(nb);
+      if (aNa && bNa) return 0;
+      if (aNa) return 1;
+      if (bNa) return -1;
+      return na - nb;
+    }}
+    const va = (ta.getAttribute('data-sort-v') || '');
+    const vb = (tb.getAttribute('data-sort-v') || '');
+    return va.localeCompare(vb);
+  }}
+  function redrawIndicators(activeIdx) {{
+    ths.forEach((th, i) => {{
+      const base = th.getAttribute('data-label') || '';
+      const arrow = (i === activeIdx) ? (sortAsc ? ' \\u25B2' : ' \\u25BC') : '';
+      th.textContent = base + arrow;
+    }});
+  }}
+  ths.forEach((th, idx) => {{
+    th.addEventListener('click', () => {{
+      if (sortCol === idx) sortAsc = !sortAsc;
+      else {{ sortCol = idx; sortAsc = true; }}
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      rows.sort((a, b) => {{
+        const c = cmpRows(a, b, idx);
+        return sortAsc ? c : -c;
+      }});
+      rows.forEach(row => tbody.appendChild(row));
+      redrawIndicators(idx);
+    }});
+  }});
+}})();
+</script>
+</body></html>"""
+    components.html(full, height=iframe_h, scrolling=True)
 
 
 def get_member_category_color(category):
@@ -3137,34 +3301,10 @@ def _render_nwst_analytics_individual_attendance(colors, cell_to_zone_map):
         st.info("No members match the current filters.")
         return
 
-    _ia_sort_opts = _monthly_table_sortable_columns(_filtered)
-    _ia_s1, _ia_s2 = st.columns(2)
-    with _ia_s1:
-        _ia_sort_col = st.selectbox(
-            "Sort by column",
-            options=_ia_sort_opts,
-            index=_ia_sort_opts.index("Member") if "Member" in _ia_sort_opts else 0,
-            key="analytics_ia_sort_column",
-        )
-    with _ia_s2:
-        _ia_sort_dir = st.selectbox(
-            "Sort direction",
-            options=["Ascending", "Descending"],
-            index=0,
-            key="analytics_ia_sort_direction",
-        )
-    _ia_asc = _ia_sort_dir == "Ascending"
-    _filtered_sorted = sort_monthly_status_dataframe(_filtered, _ia_sort_col, _ia_asc)
-
-    _mwf = _filtered_sorted.copy()
+    _mwf = _filtered.copy()
     if _sel_names:
         _show = _mwf.drop(columns=["_zone"], errors="ignore")
-        st.markdown(
-            render_monthly_status_html_table(
-                _show, sort_column=_ia_sort_col, sort_ascending=_ia_asc
-            ),
-            unsafe_allow_html=True,
-        )
+        display_monthly_status_interactive(_show)
     else:
         _zones = sorted(_mwf["_zone"].unique().tolist(), key=str.lower)
         if len(_zones) > 1:
@@ -3172,20 +3312,10 @@ def _render_nwst_analytics_individual_attendance(colors, cell_to_zone_map):
             for _ti, zname in enumerate(_zones):
                 with _ztabs[_ti]:
                     _sub = _mwf[_mwf["_zone"] == zname].drop(columns=["_zone"])
-                    st.markdown(
-                        render_monthly_status_html_table(
-                            _sub, sort_column=_ia_sort_col, sort_ascending=_ia_asc
-                        ),
-                        unsafe_allow_html=True,
-                    )
+                    display_monthly_status_interactive(_sub)
         else:
             _show = _mwf.drop(columns=["_zone"])
-            st.markdown(
-                render_monthly_status_html_table(
-                    _show, sort_column=_ia_sort_col, sort_ascending=_ia_asc
-                ),
-                unsafe_allow_html=True,
-            )
+            display_monthly_status_interactive(_show)
 
 
 def render_nwst_analytics_page(colors):
@@ -4554,31 +4684,7 @@ if current_page == "cg":
                             if _filtered_monthly.empty:
                                 st.info("No members match the current filters.")
                             else:
-                                _mh_sort_opts = _monthly_table_sortable_columns(
-                                    _filtered_monthly
-                                )
-                                _mh_s1, _mh_s2 = st.columns(2)
-                                with _mh_s1:
-                                    _mh_sort_col = st.selectbox(
-                                        "Sort by column",
-                                        options=_mh_sort_opts,
-                                        index=_mh_sort_opts.index("Member")
-                                        if "Member" in _mh_sort_opts
-                                        else 0,
-                                        key="monthly_health_sort_column",
-                                    )
-                                with _mh_s2:
-                                    _mh_sort_dir = st.selectbox(
-                                        "Sort direction",
-                                        options=["Ascending", "Descending"],
-                                        index=0,
-                                        key="monthly_health_sort_direction",
-                                    )
-                                _mh_asc = _mh_sort_dir == "Ascending"
-                                _sorted_monthly = sort_monthly_status_dataframe(
-                                    _filtered_monthly, _mh_sort_col, _mh_asc
-                                )
-                                _mwf = _sorted_monthly.copy()
+                                _mwf = _filtered_monthly.copy()
                                 _mwf["_monthly_tab_cell"] = (
                                     _mwf["Cell"]
                                     .fillna("")
@@ -4592,14 +4698,7 @@ if current_page == "cg":
                                 )
                                 # Name or Cell Health tile filter: one table so matches are not split across tabs.
                                 if _sel_names_mh or _ch_tile_f:
-                                    st.markdown(
-                                        render_monthly_status_html_table(
-                                            _sorted_monthly,
-                                            sort_column=_mh_sort_col,
-                                            sort_ascending=_mh_asc,
-                                        ),
-                                        unsafe_allow_html=True,
-                                    )
+                                    display_monthly_status_interactive(_filtered_monthly)
                                 elif cell_filter == "All" and len(_cells_for_tabs) > 1:
                                     _mh_cell_tabs = st.tabs(_cells_for_tabs)
                                     for _ti, _cell_name in enumerate(_cells_for_tabs):
@@ -4607,23 +4706,9 @@ if current_page == "cg":
                                             _sub = _mwf[_mwf["_monthly_tab_cell"] == _cell_name].drop(
                                                 columns=["_monthly_tab_cell"]
                                             )
-                                            st.markdown(
-                                                render_monthly_status_html_table(
-                                                    _sub,
-                                                    sort_column=_mh_sort_col,
-                                                    sort_ascending=_mh_asc,
-                                                ),
-                                                unsafe_allow_html=True,
-                                            )
+                                            display_monthly_status_interactive(_sub)
                                 else:
-                                    st.markdown(
-                                        render_monthly_status_html_table(
-                                            _sorted_monthly,
-                                            sort_column=_mh_sort_col,
-                                            sort_ascending=_mh_asc,
-                                        ),
-                                        unsafe_allow_html=True,
-                                    )
+                                    display_monthly_status_interactive(_filtered_monthly)
                         else:
                             st.info(
                                 "No individual attendance breakdown yet. Check that Attendance row 1 from column D has parseable dates "
