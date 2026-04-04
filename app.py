@@ -2826,11 +2826,11 @@ def display_monthly_status_interactive(df: pd.DataFrame) -> None:
     table_html = render_monthly_status_html_table(df)
     if not table_html:
         return
-    wrap_id = "mw_" + hashlib.md5(
-        f"{len(df)}|{'|'.join(str(c) for c in df.columns)}".encode()
-    ).hexdigest()[:12]
+    # Unique per rendered table so Streamlit/React do not reuse a stale iframe when
+    # tabs or filters swap data but row count/columns match.
+    wrap_id = "mw_" + hashlib.sha256(table_html.encode("utf-8")).hexdigest()[:16]
     n = len(df)
-    iframe_h = int(max(380, min(1000, 100 + n * 30)))
+    iframe_h = int(max(420, min(1000, 120 + n * 30)))
     js_wrap = json.dumps(wrap_id)
     full = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"/>
@@ -2847,8 +2847,9 @@ body {{ margin: 0; background: #0e1117; }}
   const table = root.querySelector('table.monthly-attendance-table');
   if (!table) return;
   const tbody = table.querySelector('tbody');
+  const thead = table.querySelector('thead');
   const ths = Array.from(table.querySelectorAll('thead th.monthly-sort-th'));
-  if (!tbody || ths.length === 0) return;
+  if (!tbody || !thead || ths.length === 0) return;
   let sortCol = -1;
   let sortAsc = true;
   function numFromTd(td) {{
@@ -2881,23 +2882,35 @@ body {{ margin: 0; background: #0e1117; }}
       th.textContent = base + arrow;
     }});
   }}
-  ths.forEach((th, idx) => {{
-    th.addEventListener('click', () => {{
-      if (sortCol === idx) sortAsc = !sortAsc;
-      else {{ sortCol = idx; sortAsc = true; }}
-      const rows = Array.from(tbody.querySelectorAll('tr'));
-      rows.sort((a, b) => {{
-        const c = cmpRows(a, b, idx);
-        return sortAsc ? c : -c;
-      }});
-      rows.forEach(row => tbody.appendChild(row));
-      redrawIndicators(idx);
+  function applySort(idx) {{
+    if (sortCol === idx) sortAsc = !sortAsc;
+    else {{ sortCol = idx; sortAsc = true; }}
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort((a, b) => {{
+      const c = cmpRows(a, b, idx);
+      return sortAsc ? c : -c;
     }});
-  }});
+    rows.forEach(row => tbody.appendChild(row));
+    redrawIndicators(idx);
+  }}
+  thead.addEventListener('click', function(ev) {{
+    let t = ev.target;
+    while (t && t.nodeType !== 1) t = t.parentNode;
+    const th = t && typeof t.closest === 'function' ? t.closest('th.monthly-sort-th') : null;
+    if (!th || !table.contains(th)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const idx = ths.indexOf(th);
+    if (idx < 0) return;
+    applySort(idx);
+  }}, true);
 }})();
 </script>
 </body></html>"""
-    components.html(full, height=iframe_h, scrolling=True)
+    try:
+        components.html(full, height=iframe_h, scrolling=True, tab_index=0)
+    except TypeError:
+        components.html(full, height=iframe_h, scrolling=True)
 
 
 def get_member_category_color(category):
