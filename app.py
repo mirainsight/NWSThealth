@@ -3663,28 +3663,6 @@ def _render_nwst_analytics_individual_attendance(colors, cell_to_zone_map):
 @st.fragment
 def _nwst_individual_attendance_fragment(monthly_status_df: pd.DataFrame, colors: dict):
     """Fragment for Individual Attendance section - only this block reruns when filter changes."""
-    p = html.escape(str(colors.get("primary", "#00ff00")), quote=True)
-    bg = html.escape(str(colors.get("background", "#000000")), quote=True)
-    st.markdown(
-        f"""
-        <style>
-            [data-testid="stTextInput"] {{
-                font-family: 'Inter', sans-serif !important;
-            }}
-            [data-testid="stTextInput"] > div {{
-                border: 2px solid {p} !important;
-                border-radius: 0px !important;
-                background: {bg} !important;
-            }}
-            [data-testid="stTextInput"] input {{
-                font-family: 'Inter', sans-serif !important;
-                color: #ffffff !important;
-            }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
     if "analytics_ia_name_filter" not in st.session_state:
         st.session_state.analytics_ia_name_filter = ""
 
@@ -3727,28 +3705,6 @@ def _nwst_individual_attendance_fragment(monthly_status_df: pd.DataFrame, colors
 @st.fragment
 def _cg_individual_attendance_fragment(monthly_status_df: pd.DataFrame, colors: dict, cell_filter: str):
     """Fragment for CG Health Individual Attendance section - only this block reruns when filter changes."""
-    p = html.escape(str(colors.get("primary", "#00ff00")), quote=True)
-    bg = html.escape(str(colors.get("background", "#000000")), quote=True)
-    st.markdown(
-        f"""
-        <style>
-            [data-testid="stTextInput"] {{
-                font-family: 'Inter', sans-serif !important;
-            }}
-            [data-testid="stTextInput"] > div {{
-                border: 2px solid {p} !important;
-                border-radius: 0px !important;
-                background: {bg} !important;
-            }}
-            [data-testid="stTextInput"] input {{
-                font-family: 'Inter', sans-serif !important;
-                color: #ffffff !important;
-            }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
     if "cg_ia_name_filter" not in st.session_state:
         st.session_state.cg_ia_name_filter = ""
 
