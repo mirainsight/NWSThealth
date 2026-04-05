@@ -3735,6 +3735,98 @@ def _nwst_individual_attendance_fragment(monthly_status_df: pd.DataFrame, colors
             display_monthly_status_interactive(_show)
 
 
+@st.fragment
+def _cg_individual_attendance_fragment(monthly_status_df: pd.DataFrame, colors: dict, cell_filter: str):
+    """Fragment for CG Health Individual Attendance section - only this block reruns when filter changes."""
+    p = html.escape(str(colors.get("primary", "#00ff00")), quote=True)
+    bg = html.escape(str(colors.get("background", "#000000")), quote=True)
+    st.markdown(
+        f"""
+        <style>
+            [data-testid="stTextInput"] {{
+                font-family: 'Inter', sans-serif !important;
+            }}
+            [data-testid="stTextInput"] > div {{
+                border: 2px solid {p} !important;
+                border-radius: 0px !important;
+                background: {bg} !important;
+            }}
+            [data-testid="stTextInput"] input {{
+                font-family: 'Inter', sans-serif !important;
+                color: #ffffff !important;
+            }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if "cg_ia_name_filter" not in st.session_state:
+        st.session_state.cg_ia_name_filter = ""
+
+    _mh_ncol1, _mh_ncol2 = st.columns([3, 1])
+    with _mh_ncol1:
+        _name_filter = st.text_input(
+            "Search by Name...",
+            value=st.session_state.cg_ia_name_filter,
+            key="cg_ia_name_input",
+            placeholder="Type to filter by name...",
+            label_visibility="collapsed",
+        )
+        st.session_state.cg_ia_name_filter = _name_filter
+    with _mh_ncol2:
+        if st.button(
+            "Clear",
+            type="secondary",
+            use_container_width=True,
+            key="cg_ia_clear_filters",
+        ):
+            st.session_state.cg_ia_name_filter = ""
+            st.session_state.cg_cell_health_tile_filter = None
+            st.rerun(scope="fragment")
+
+    _filtered_monthly = monthly_status_df.copy()
+    if _name_filter.strip():
+        _filter_lower = _name_filter.strip().lower()
+        _mem_f = _filtered_monthly["Member"].fillna("").astype(str).str.strip().str.lower()
+        _filtered_monthly = _filtered_monthly[_mem_f.str.contains(_filter_lower, regex=False)]
+
+    _ch_tile_f = st.session_state.get("cg_cell_health_tile_filter")
+    if _ch_tile_f and "_tile_status" in _filtered_monthly.columns:
+        _filtered_monthly = _filtered_monthly[
+            _filtered_monthly["_tile_status"] == _ch_tile_f
+        ]
+
+    if _filtered_monthly.empty:
+        st.info("No members match the current filter.")
+        return
+
+    _mwf = _filtered_monthly.copy()
+    _mwf["_monthly_tab_cell"] = (
+        _mwf["Cell"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .replace("", "(no cell)")
+    )
+    _cells_for_tabs = sorted(
+        _mwf["_monthly_tab_cell"].unique().tolist(),
+        key=str.lower,
+    )
+    # Name or Cell Health tile filter: one table so matches are not split across tabs.
+    if _name_filter.strip() or _ch_tile_f:
+        display_monthly_status_interactive(_filtered_monthly)
+    elif cell_filter == "All" and len(_cells_for_tabs) > 1:
+        _mh_cell_tabs = st.tabs(_cells_for_tabs)
+        for _ti, _cell_name in enumerate(_cells_for_tabs):
+            with _mh_cell_tabs[_ti]:
+                _sub = _mwf[_mwf["_monthly_tab_cell"] == _cell_name].drop(
+                    columns=["_monthly_tab_cell"]
+                )
+                display_monthly_status_interactive(_sub)
+    else:
+        display_monthly_status_interactive(_filtered_monthly)
+
+
 def render_nwst_analytics_page(colors):
     """Saturday attendance trends from the Attendance Analytics sheet (same as CHECK IN attendance_app)."""
     analytics_sheet_id = (CHECKIN_ATTENDANCE_SHEET_ID or "").strip()
@@ -4943,122 +5035,7 @@ if current_page == "cg":
                             display_df, att_df_m, cg_df_m, status_hist_df
                         )
                         if monthly_status_df is not None and not monthly_status_df.empty:
-                            st.markdown(
-                                f"""
-                                <style>
-                                    [data-testid="stMultiSelect"] {{
-                                        font-family: 'Inter', sans-serif !important;
-                                    }}
-                                    [data-testid="stMultiSelect"] > div {{
-                                        border: 2px solid {daily_colors['primary']} !important;
-                                        border-radius: 0px !important;
-                                        background: {daily_colors['background']} !important;
-                                    }}
-                                    [data-testid="stMultiSelect"] span {{
-                                        font-family: 'Inter', sans-serif !important;
-                                        color: #ffffff !important;
-                                    }}
-                                    [data-testid="stMultiSelect"] svg {{
-                                        fill: {daily_colors['primary']} !important;
-                                    }}
-                                    [data-testid="stMultiSelect"] [data-baseweb="tag"] {{
-                                        background: {daily_colors['primary']} !important;
-                                        border-radius: 0px !important;
-                                    }}
-                                    [data-testid="stMultiSelect"] [data-baseweb="tag"] span {{
-                                        color: {daily_colors['background']} !important;
-                                        font-weight: 600 !important;
-                                    }}
-                                </style>
-                                """,
-                                unsafe_allow_html=True,
-                            )
-
-                            if "monthly_health_clear_filter_counter" not in st.session_state:
-                                st.session_state.monthly_health_clear_filter_counter = 0
-                            _mh_fc = st.session_state.monthly_health_clear_filter_counter
-
-                            _all_names_mh = sorted(
-                                monthly_status_df["Member"].dropna().astype(str).str.strip().unique().tolist(),
-                                key=str.lower,
-                            )
-                            _all_names_mh = [n for n in _all_names_mh if n]
-
-                            _mh_ncol1, _mh_ncol2 = st.columns([3, 1])
-                            with _mh_ncol1:
-                                _sel_names_mh = st.multiselect(
-                                    "Search by Name...",
-                                    options=_all_names_mh,
-                                    default=[],
-                                    key=f"monthly_health_name_multiselect_{_mh_fc}",
-                                    placeholder="Search and select names...",
-                                    label_visibility="collapsed",
-                                )
-                            with _mh_ncol2:
-                                if st.button(
-                                    "Clear All",
-                                    type="secondary",
-                                    use_container_width=True,
-                                    key="monthly_health_clear_filters",
-                                ):
-                                    st.session_state.monthly_health_clear_filter_counter += 1
-                                    st.session_state.cg_cell_health_tile_filter = None
-                                    st.rerun()
-
-                            _filtered_monthly = monthly_status_df.copy()
-                            if _sel_names_mh:
-                                _mem_f = _filtered_monthly["Member"].dropna().astype(str).str.strip()
-                                _filtered_monthly = _filtered_monthly[
-                                    _mem_f.isin(_sel_names_mh)
-                                ]
-
-                            _ch_tile_f = st.session_state.get("cg_cell_health_tile_filter")
-                            if _ch_tile_f and "_tile_status" in _filtered_monthly.columns:
-                                _filtered_monthly = _filtered_monthly[
-                                    _filtered_monthly["_tile_status"] == _ch_tile_f
-                                ]
-
-                            _mh_filter_parts = []
-                            if _sel_names_mh:
-                                _mh_filter_parts.append(f"{len(_sel_names_mh)} name(s)")
-                            if _ch_tile_f:
-                                _mh_filter_parts.append(f"status: {_ch_tile_f}")
-                            _mh_filter_text = (
-                                f" from {' and '.join(_mh_filter_parts)}" if _mh_filter_parts else ""
-                            )
-                            st.markdown(
-                                f"<p style='color: #999999; font-family: Inter, sans-serif; font-size: 0.9rem; margin: 1rem 0 0.5rem 0;'>Showing <b style=\"color: {daily_colors['primary']}\">{len(_filtered_monthly)}</b> members{_mh_filter_text}</p>",
-                                unsafe_allow_html=True,
-                            )
-
-                            if _filtered_monthly.empty:
-                                st.info("No members match the current filters.")
-                            else:
-                                _mwf = _filtered_monthly.copy()
-                                _mwf["_monthly_tab_cell"] = (
-                                    _mwf["Cell"]
-                                    .fillna("")
-                                    .astype(str)
-                                    .str.strip()
-                                    .replace("", "(no cell)")
-                                )
-                                _cells_for_tabs = sorted(
-                                    _mwf["_monthly_tab_cell"].unique().tolist(),
-                                    key=str.lower,
-                                )
-                                # Name or Cell Health tile filter: one table so matches are not split across tabs.
-                                if _sel_names_mh or _ch_tile_f:
-                                    display_monthly_status_interactive(_filtered_monthly)
-                                elif cell_filter == "All" and len(_cells_for_tabs) > 1:
-                                    _mh_cell_tabs = st.tabs(_cells_for_tabs)
-                                    for _ti, _cell_name in enumerate(_cells_for_tabs):
-                                        with _mh_cell_tabs[_ti]:
-                                            _sub = _mwf[_mwf["_monthly_tab_cell"] == _cell_name].drop(
-                                                columns=["_monthly_tab_cell"]
-                                            )
-                                            display_monthly_status_interactive(_sub)
-                                else:
-                                    display_monthly_status_interactive(_filtered_monthly)
+                            _cg_individual_attendance_fragment(monthly_status_df, daily_colors, cell_filter)
                         else:
                             st.info(
                                 "No individual attendance breakdown yet. Check that Attendance row 1 from column D has parseable dates "
