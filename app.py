@@ -55,10 +55,22 @@ _MONTHLY_ATTENDANCE_IFRAME_CSS = r"""
     color: #e8e8e8;
 }
 .monthly-attendance-table th:nth-child(1),
-.monthly-attendance-table td:nth-child(1),
+.monthly-attendance-table td:nth-child(1) {
+    max-width: 6rem;
+    width: 1%;
+    overflow: hidden;
+    vertical-align: top;
+    position: sticky;
+    left: 0;
+    background: #0e1117;
+    z-index: 1;
+}
+.monthly-attendance-table th:nth-child(1) {
+    z-index: 2;
+}
 .monthly-attendance-table th:nth-child(2),
 .monthly-attendance-table td:nth-child(2) {
-    max-width: 7.5rem;
+    max-width: 6rem;
     width: 1%;
     overflow: hidden;
     vertical-align: top;
@@ -3180,11 +3192,23 @@ def render_monthly_status_html_table(df):
     }
 
     month_cols = _monthly_table_month_columns(df)
-    display_columns = [c for c in df.columns if c != "_tile_status"]
+    # Reorder columns: Member first, then Cell, Health, then month columns
+    all_cols = [c for c in df.columns if c != "_tile_status"]
+    ordered_cols = []
+    if "Member" in all_cols:
+        ordered_cols.append("Member")
+    if "Cell" in all_cols:
+        ordered_cols.append("Cell")
+    if "Health" in all_cols:
+        ordered_cols.append("Health")
+    for c in all_cols:
+        if c not in ordered_cols:
+            ordered_cols.append(c)
+    display_columns = ordered_cols
 
     header_parts = []
     for c in display_columns:
-        lab = str(c)
+        lab = "Name" if c == "Member" else str(c)
         header_parts.append(
             "<th class=\"monthly-sort-th\" "
             f"title=\"Click to sort; click again to reverse\" "
