@@ -3688,25 +3688,14 @@ def _nwst_individual_attendance_fragment(monthly_status_df: pd.DataFrame, colors
     if "analytics_ia_name_filter" not in st.session_state:
         st.session_state.analytics_ia_name_filter = ""
 
-    _ncol1, _ncol2 = st.columns([3, 1])
-    with _ncol1:
-        _name_filter = st.text_input(
-            "Search by Name...",
-            value=st.session_state.analytics_ia_name_filter,
-            key="analytics_ia_name_input",
-            placeholder="Type to filter by name...",
-            label_visibility="collapsed",
-        )
-        st.session_state.analytics_ia_name_filter = _name_filter
-    with _ncol2:
-        if st.button(
-            "Clear",
-            type="secondary",
-            use_container_width=True,
-            key="analytics_ia_clear_filters",
-        ):
-            st.session_state.analytics_ia_name_filter = ""
-            st.rerun(scope="fragment")
+    _name_filter = st.text_input(
+        "Search by Name...",
+        value=st.session_state.analytics_ia_name_filter,
+        key="analytics_ia_name_input",
+        placeholder="Type to filter by name...",
+        label_visibility="collapsed",
+    )
+    st.session_state.analytics_ia_name_filter = _name_filter
 
     _filtered = monthly_status_df.copy()
     if _name_filter.strip():
@@ -3763,26 +3752,14 @@ def _cg_individual_attendance_fragment(monthly_status_df: pd.DataFrame, colors: 
     if "cg_ia_name_filter" not in st.session_state:
         st.session_state.cg_ia_name_filter = ""
 
-    _mh_ncol1, _mh_ncol2 = st.columns([3, 1])
-    with _mh_ncol1:
-        _name_filter = st.text_input(
-            "Search by Name...",
-            value=st.session_state.cg_ia_name_filter,
-            key="cg_ia_name_input",
-            placeholder="Type to filter by name...",
-            label_visibility="collapsed",
-        )
-        st.session_state.cg_ia_name_filter = _name_filter
-    with _mh_ncol2:
-        if st.button(
-            "Clear",
-            type="secondary",
-            use_container_width=True,
-            key="cg_ia_clear_filters",
-        ):
-            st.session_state.cg_ia_name_filter = ""
-            st.session_state.cg_cell_health_tile_filter = None
-            st.rerun(scope="fragment")
+    _name_filter = st.text_input(
+        "Search by Name...",
+        value=st.session_state.cg_ia_name_filter,
+        key="cg_ia_name_input",
+        placeholder="Type to filter by name...",
+        label_visibility="collapsed",
+    )
+    st.session_state.cg_ia_name_filter = _name_filter
 
     _filtered_monthly = monthly_status_df.copy()
     if _name_filter.strip():
