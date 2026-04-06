@@ -174,7 +174,8 @@ _DETAILED_MEMBERS_IFRAME_CSS_EXTRA = r"""
 }
 .detailed-members-table.monthly-attendance-table th:first-child,
 .detailed-members-table.monthly-attendance-table td:first-child {
-    max-width: 10rem;
+    width: 1%;
+    max-width: 5rem;
 }
 """
 
