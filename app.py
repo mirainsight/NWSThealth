@@ -161,6 +161,23 @@ _MONTHLY_ATTENDANCE_IFRAME_CSS = r"""
 }
 """
 
+# Detailed Members roster: same base table as Individual Attendance, without IA’s narrow month-column rules.
+_DETAILED_MEMBERS_IFRAME_CSS_EXTRA = r"""
+.detailed-members-table.monthly-attendance-table th:nth-child(n+2),
+.detailed-members-table.monthly-attendance-table td:nth-child(n+2) {
+    max-width: none;
+    width: auto;
+    white-space: normal;
+    text-align: left;
+    font-size: 0.88rem;
+    vertical-align: top;
+}
+.detailed-members-table.monthly-attendance-table th:first-child,
+.detailed-members-table.monthly-attendance-table td:first-child {
+    max-width: 10rem;
+}
+"""
+
 # CHECK IN attendance spreadsheet — used only for the Analytics tab (Attendance Analytics, Options, Key Values)
 CHECKIN_ATTENDANCE_SHEET_ID = os.getenv("ATTENDANCE_SHEET_ID", "").strip()
 if not CHECKIN_ATTENDANCE_SHEET_ID:
@@ -1301,31 +1318,6 @@ def _resolve_member_table_columns(df: pd.DataFrame) -> tuple[list[str], list[str
     return resolved_actual, resolved_labels
 
 
-# Wider than Streamlit ``large`` (400px) so long notes are readable without excessive wrap.
-_NWST_MEMBERS_NOTES_COL_WIDTH_PX = 560
-
-
-def _all_members_dataframe_column_config(table_df: pd.DataFrame) -> dict:
-    """Pin the first column; Notes gets a very wide width; other columns use Streamlit defaults."""
-    if table_df is None or table_df.empty or len(table_df.columns) == 0:
-        return {}
-    first_col = table_df.columns[0]
-    cfg = {
-        first_col: st.column_config.TextColumn(
-            str(first_col),
-            pinned=True,
-        ),
-    }
-    for c in table_df.columns:
-        if str(c).strip().lower() == "notes":
-            cfg[c] = st.column_config.TextColumn(
-                str(c),
-                width=_NWST_MEMBERS_NOTES_COL_WIDTH_PX,
-            )
-            break
-    return cfg
-
-
 def _render_cg_detailed_members_section(df, _daily_colors):
     """Content for CG Health > Detailed Members collapsible (roster ``df``, respects cell filter)."""
     if df is None or df.empty:
@@ -1343,13 +1335,19 @@ def _render_cg_detailed_members_section(df, _daily_colors):
     table_df = df[actual_cols].copy()
     table_df.columns = display_labels
 
+    status_col = None
+    for col in df.columns:
+        if "status" in col.lower():
+            status_col = col
+            break
+    tile_statuses = []
+    for _, dr in df.iterrows():
+        tile_statuses.append(
+            extract_cell_sheet_status_type(dr.get(status_col)) if status_col else None
+        )
+
     st.markdown("#### All Members")
-    st.dataframe(
-        table_df,
-        use_container_width=True,
-        hide_index=True,
-        column_config=_all_members_dataframe_column_config(table_df),
-    )
+    display_detailed_members_interactive(table_df, tile_statuses)
 
     _miss_set = set(_DESIRED_MEMBER_TABLE_COLUMNS) - set(display_labels)
     if _miss_set:
@@ -3288,6 +3286,182 @@ def display_monthly_status_interactive(df: pd.DataFrame) -> None:
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 body {{ margin: 0; background: #0e1117; }}
 {_MONTHLY_ATTENDANCE_IFRAME_CSS}
+</style></head><body>
+<div id="{wrap_id}">{table_html}</div>
+<script>
+(function() {{
+  const root = document.getElementById({js_wrap});
+  if (!root) return;
+  const table = root.querySelector('table.monthly-attendance-table');
+  if (!table) return;
+  const tbody = table.querySelector('tbody');
+  const thead = table.querySelector('thead');
+  const ths = Array.from(table.querySelectorAll('thead th.monthly-sort-th'));
+  if (!tbody || !thead || ths.length === 0) return;
+  let sortCol = -1;
+  let sortAsc = true;
+  function numFromTd(td) {{
+    const v = td.getAttribute('data-sort-v');
+    if (v === null || v === '') return NaN;
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : NaN;
+  }}
+  function cmpRows(r1, r2, colIdx) {{
+    const ta = r1.children[colIdx];
+    const tb = r2.children[colIdx];
+    if (!ta || !tb) return 0;
+    const typ = ta.getAttribute('data-sort-t') || 'lex';
+    if (typ === 'num') {{
+      const na = numFromTd(ta), nb = numFromTd(tb);
+      const aNa = Number.isNaN(na), bNa = Number.isNaN(nb);
+      if (aNa && bNa) return 0;
+      if (aNa) return 1;
+      if (bNa) return -1;
+      return na - nb;
+    }}
+    const va = (ta.getAttribute('data-sort-v') || '');
+    const vb = (tb.getAttribute('data-sort-v') || '');
+    return va.localeCompare(vb);
+  }}
+  function redrawIndicators(activeIdx) {{
+    ths.forEach((th, i) => {{
+      const base = th.getAttribute('data-label') || '';
+      const arrow = (i === activeIdx) ? (sortAsc ? ' \\u25B2' : ' \\u25BC') : '';
+      th.textContent = base + arrow;
+    }});
+  }}
+  function applySort(idx) {{
+    if (sortCol === idx) sortAsc = !sortAsc;
+    else {{ sortCol = idx; sortAsc = true; }}
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort((a, b) => {{
+      const c = cmpRows(a, b, idx);
+      return sortAsc ? c : -c;
+    }});
+    rows.forEach(row => tbody.appendChild(row));
+    redrawIndicators(idx);
+  }}
+  thead.addEventListener('click', function(ev) {{
+    let t = ev.target;
+    while (t && t.nodeType !== 1) t = t.parentNode;
+    const th = t && typeof t.closest === 'function' ? t.closest('th.monthly-sort-th') : null;
+    if (!th || !table.contains(th)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const idx = ths.indexOf(th);
+    if (idx < 0) return;
+    applySort(idx);
+  }}, true);
+}})();
+</script>
+</body></html>"""
+    try:
+        components.html(full, height=iframe_h, scrolling=True, tab_index=0)
+    except TypeError:
+        components.html(full, height=iframe_h, scrolling=True)
+
+
+def _detailed_members_health_span_class(tile_status):
+    """Same class mapping as Individual Attendance Health column (sheet tile statuses)."""
+    health_tile_classes = {
+        "Regular": "monthly-status-regular",
+        "Irregular": "monthly-status-irregular",
+        "Follow Up": "monthly-status-followup",
+        "New": "monthly-health-tile-new",
+        "Red": "monthly-health-tile-red",
+        "Graduated": "monthly-health-tile-graduated",
+    }
+    return health_tile_classes.get(tile_status or "")
+
+
+def _detailed_member_name_cell(sval, tile_status, sort_attrs):
+    """First column: expandable name + Health color (tile status), matching IA table patterns."""
+    full = (sval or "").strip()
+    esc_full = html.escape(full)
+    if not full:
+        return f'<td class="monthly-trunc-cell"{sort_attrs}></td>'
+    cls = _detailed_members_health_span_class(tile_status)
+    colored = f'<span class="{cls}">{esc_full}</span>' if cls else esc_full
+    inner = (
+        f'<details class="monthly-trunc-details">'
+        f'<summary class="monthly-trunc-summary" title="Click to show full text">{colored}</summary>'
+        f'<span class="monthly-trunc-full">{colored}</span>'
+        f"</details>"
+    )
+    return f'<td class="monthly-trunc-cell"{sort_attrs}>{inner}</td>'
+
+
+def _detailed_members_name_sort_attrs(sval):
+    v = (sval or "").strip().lower()
+    return f' data-sort-t="lex" data-sort-v="{html.escape(v, quote=True)}"'
+
+
+def _detailed_members_col_sort_attrs(col_name, sval):
+    if str(col_name).strip().lower() == "age":
+        t = str(sval).strip()
+        try:
+            n = float(t) if t else float("nan")
+        except ValueError:
+            n = float("nan")
+        if n == n:
+            return f' data-sort-t="num" data-sort-v="{html.escape(f"{n:.6g}", quote=True)}"'
+    v = (sval or "").strip().lower()
+    return f' data-sort-t="lex" data-sort-v="{html.escape(v, quote=True)}"'
+
+
+def render_detailed_members_html_table(table_df: pd.DataFrame, tile_statuses: list) -> str:
+    """Roster as HTML: same structure/classes as Individual Attendance; first column header **Names**."""
+    if table_df is None or table_df.empty:
+        return ""
+    cols = list(table_df.columns)
+    header_parts = []
+    for c in cols:
+        lab = "Names" if str(c).strip() == "Name" else str(c)
+        header_parts.append(
+            '<th class="monthly-sort-th" '
+            'title="Click to sort; click again to reverse" '
+            f'data-label="{html.escape(lab, quote=True)}">'
+            f"{html.escape(lab)}</th>"
+        )
+    header_cells = "".join(header_parts)
+    body_rows = []
+    for i, (_, row) in enumerate(table_df.iterrows()):
+        ts = tile_statuses[i] if i < len(tile_statuses) else None
+        cells = []
+        for j, col in enumerate(cols):
+            raw = row[col]
+            sval = "" if pd.isna(raw) else str(raw).strip()
+            if j == 0:
+                cells.append(_detailed_member_name_cell(sval, ts, _detailed_members_name_sort_attrs(sval)))
+            else:
+                sa = _detailed_members_col_sort_attrs(col, sval)
+                cells.append(f"<td{sa}>{html.escape(sval)}</td>")
+        body_rows.append("<tr>" + "".join(cells) + "</tr>")
+    return (
+        '<div class="monthly-attendance-table-wrap">'
+        '<table class="monthly-attendance-table detailed-members-table">'
+        f"<thead><tr>{header_cells}</tr></thead>"
+        f"<tbody>{''.join(body_rows)}</tbody>"
+        "</table></div>"
+    )
+
+
+def display_detailed_members_interactive(table_df: pd.DataFrame, tile_statuses: list) -> None:
+    """Detailed Members table in an iframe with the same sort UX as Individual Attendance."""
+    table_html = render_detailed_members_html_table(table_df, tile_statuses)
+    if not table_html:
+        return
+    wrap_id = "dm_" + hashlib.sha256(table_html.encode("utf-8")).hexdigest()[:16]
+    n = len(table_df)
+    iframe_h = int(max(420, min(1000, 120 + n * 30)))
+    js_wrap = json.dumps(wrap_id)
+    full = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+body {{ margin: 0; background: #0e1117; }}
+{_MONTHLY_ATTENDANCE_IFRAME_CSS}
+{_DETAILED_MEMBERS_IFRAME_CSS_EXTRA}
 </style></head><body>
 <div id="{wrap_id}">{table_html}</div>
 <script>
