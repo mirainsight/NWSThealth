@@ -163,11 +163,18 @@ _MONTHLY_ATTENDANCE_IFRAME_CSS = r"""
 
 # Detailed Members roster: same base table as Individual Attendance, without IA’s narrow month-column rules.
 _DETAILED_MEMBERS_IFRAME_CSS_EXTRA = r"""
-.detailed-members-table.monthly-attendance-table th:nth-child(n+2),
-.detailed-members-table.monthly-attendance-table td:nth-child(n+2) {
-    max-width: none;
-    width: auto;
+.detailed-members-table.monthly-attendance-table th:nth-child(n+2) {
+    max-width: 11rem;
+    width: 1%;
+    text-align: left;
+    font-size: 0.72rem;
+    vertical-align: bottom;
     white-space: normal;
+}
+.detailed-members-table.monthly-attendance-table td:nth-child(n+2) {
+    max-width: 8rem;
+    width: 1%;
+    overflow: hidden;
     text-align: left;
     font-size: 0.88rem;
     vertical-align: top;
@@ -3436,7 +3443,7 @@ def render_detailed_members_html_table(table_df: pd.DataFrame, tile_statuses: li
                 cells.append(_detailed_member_name_cell(sval, ts, _detailed_members_name_sort_attrs(sval)))
             else:
                 sa = _detailed_members_col_sort_attrs(col, sval)
-                cells.append(f"<td{sa}>{html.escape(sval)}</td>")
+                cells.append(_monthly_trunc_expand_cell(sval, sa))
         body_rows.append("<tr>" + "".join(cells) + "</tr>")
     return (
         '<div class="monthly-attendance-table-wrap">'
