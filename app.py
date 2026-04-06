@@ -5185,10 +5185,9 @@ if current_page == "cg":
                 else:
                     st.info("No member data to show individual attendance.")
 
-            with st.expander("📊 CELL BREAKDOWN", expanded=False):
+            with st.expander("📊 CELL BREAKDOWN & ATTENDANCE", expanded=False):
                 _nwst_cell_breakdown_fragment(display_df, daily_colors, cell_filter)
-
-            with st.expander("📈 CELL ATTENDANCE", expanded=False):
+                st.markdown("---")
                 st.markdown("")
                 if display_df is None or display_df.empty:
                     st.info("No member data to show cell attendance charts.")
@@ -5198,7 +5197,6 @@ if current_page == "cg":
                         daily_colors,
                         tab_each_cell_when_all=(cell_filter == "All"),
                     )
-
 
             with st.expander("📋 DETAILED MEMBERS", expanded=False):
                 _render_cg_detailed_members_section(display_df, daily_colors)
